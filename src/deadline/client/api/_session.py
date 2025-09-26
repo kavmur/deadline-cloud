@@ -16,6 +16,7 @@ from typing import Optional, Tuple
 
 import boto3  # type: ignore[import]
 import botocore
+import botocore.config
 from botocore.client import BaseClient  # type: ignore[import]
 from botocore.credentials import CredentialProvider, RefreshableCredentials
 from botocore.exceptions import (  # type: ignore[import]
@@ -43,7 +44,10 @@ class AwsAuthenticationStatus(Enum):
 
 
 # Place for stashing context to be attached to boto clients.
-session_context: dict[str, Optional[str]] = {"submitter-name": None}
+session_context: dict[str, Optional[str]] = {
+    "submitter-name": None,
+    "cli-command-name": None,
+}
 
 
 def get_boto3_session(
@@ -106,16 +110,19 @@ def invalidate_boto3_session_cache() -> None:
     _get_queue_user_boto3_session.cache_clear()
 
 
-def get_default_client_config() -> botocore.config.Config:
+def get_default_client_config(**kwargs) -> botocore.config.Config:
     """
-    Gets the default botocore Config object to use with `boto3 sessions`.
+    Gets the default botocore Config object to use with `boto3 clients`.
     This method adds user agent version and submitter context into botocore calls.
+    Additional arguments are forwarded to the Config constructor.
     """
     user_agent_extra = f"app/deadline-client#{version}"
     if session_context.get("submitter-name"):
         user_agent_extra += f" submitter/{session_context['submitter-name']}"
-    session_config = botocore.config.Config(user_agent_extra=user_agent_extra)
-    return session_config
+    if session_context.get("cli-command-name"):
+        user_agent_extra += f" cli-command/{session_context['cli-command-name']}"
+    client_config = botocore.config.Config(user_agent_extra=user_agent_extra, **kwargs)
+    return client_config
 
 
 @lru_cache

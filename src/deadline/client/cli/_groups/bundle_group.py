@@ -11,6 +11,9 @@ import logging
 import sys
 import re
 from typing import Any, Optional
+import tempfile
+import shutil
+import os
 
 import click
 from botocore.exceptions import ClientError
@@ -30,6 +33,7 @@ from .._common import (
     _handle_error,
     _ProgressBarCallbackManager,
 )
+from .._main import main
 from ._sigint_handler import SigIntHandler
 
 logger = logging.getLogger(__name__)
@@ -38,7 +42,7 @@ logger = logging.getLogger(__name__)
 sigint_handler = SigIntHandler()
 
 
-@click.group(name="bundle")
+@main.group(name="bundle")
 @_handle_error
 def cli_bundle():
     """
@@ -94,7 +98,11 @@ def _interactive_confirmation_prompt(message: str, default_response: bool) -> bo
     "--parameter",
     multiple=True,
     callback=validate_parameters,
-    help='The values for the job template\'s parameters. Can be provided as key-value pairs, inline JSON strings, or as paths to a JSON or YAML document. If provided more than once, the values are combined in the order that they appear. Examples: --parameter MyParam=5 -p file://parameter_file.json -p \'{"MyParam": "5"}\'',
+    help=(
+        "The values for the job template's parameters. Can be provided as key-value pairs, inline JSON strings, "
+        "or as paths to a JSON or YAML document. Later values for repeated parameter names take precedence. "
+        'Examples: --parameter MyParam=5 -p file://parameter_file.json -p \'{"OtherParam": "10"}\''
+    ),
 )
 @click.option("--profile", help="The AWS profile to use.")
 @click.option("--farm-id", help="The farm to use.")
@@ -123,6 +131,12 @@ def _interactive_confirmation_prompt(message: str, default_response: bool) -> bo
     help="The max worker count of the job.",
 )
 @click.option(
+    "--target-task-run-status",
+    type=click.Choice(["READY", "SUSPENDED"], case_sensitive=False),
+    help="The target task run status for the job. READY means tasks will start immediately, "
+    "SUSPENDED means tasks will be created but not start until manually resumed.",
+)
+@click.option(
     "--job-attachments-file-system",
     help="The method workers use to access job attachments. "
     "COPIED means to copy files to the worker and VIRTUAL means to load "
@@ -133,7 +147,7 @@ def _interactive_confirmation_prompt(message: str, default_response: bool) -> bo
 @click.option(
     "--yes",
     is_flag=True,
-    help="Skip any confirmation prompts",
+    help="Automatically accept any confirmation prompts",
 )
 @click.option(
     "--require-paths-exist",
@@ -151,6 +165,12 @@ def _interactive_confirmation_prompt(message: str, default_response: bool) -> bo
     help="Path that should not generate warnings when outside storage profile locations. "
     "Can be specified multiple times for different paths.",
 )
+@click.option(
+    "--save-debug-snapshot",
+    help="Instead of submitting the job, generate a debug snapshot as a directory or a zip file if the extension is .zip."
+    " It includes the job attachments and parameters for creating the job."
+    " You can later run the bash script in the snapshot to submit the job using AWS CLI commands.",
+)
 @click.argument("job_bundle_dir")
 @_handle_error
 def bundle_submit(
@@ -163,8 +183,10 @@ def bundle_submit(
     max_failed_tasks_count,
     max_retries_per_task,
     max_worker_count,
+    target_task_run_status,
     require_paths_exist,
     submitter_name,
+    save_debug_snapshot,
     **args,
 ):
     """
@@ -180,6 +202,14 @@ def bundle_submit(
         return sigint_handler.continue_operation
 
     try:
+        snapshot_tmpdir = None
+        if save_debug_snapshot:
+            save_debug_snapshot = os.path.abspath(save_debug_snapshot)
+
+            # If the debug snapshot is to a zip file, first put it in a temporary directory
+            if save_debug_snapshot.endswith(".zip"):
+                snapshot_tmpdir = tempfile.TemporaryDirectory()
+
         job_id = api.create_job_from_job_bundle(
             job_bundle_dir=job_bundle_dir,
             job_parameters=parameter,
@@ -190,6 +220,7 @@ def bundle_submit(
             max_failed_tasks_count=max_failed_tasks_count,
             max_retries_per_task=max_retries_per_task,
             max_worker_count=max_worker_count,
+            target_task_run_status=target_task_run_status,
             hashing_progress_callback=hash_callback_manager.callback,
             upload_progress_callback=upload_callback_manager.callback,
             create_job_result_callback=_check_create_job_wait_canceled,
@@ -198,16 +229,27 @@ def bundle_submit(
             require_paths_exist=require_paths_exist,
             submitter_name=submitter_name or "CLI",
             known_asset_paths=known_asset_path,
+            debug_snapshot_dir=snapshot_tmpdir.name if snapshot_tmpdir else save_debug_snapshot,
         )
+
+        if snapshot_tmpdir:
+            # Put the snapshot in a zip file
+            os.makedirs(os.path.dirname(save_debug_snapshot), exist_ok=True)
+            shutil.make_archive(save_debug_snapshot, "zip", snapshot_tmpdir.name)
+
+        if save_debug_snapshot:
+            click.echo("Saved job debug snapshot:")
+            click.echo(f"    {save_debug_snapshot}")
 
         # Check Whether the CLI options are modifying any of the default settings that affect
         # the job id. If not, we'll save the job id submitted as the default job id.
-        # If the submission is canceled by the user job_id will be None, so ignore this case as well.
+        # If a job snapshot directory was provided, the job_id will be None.
         if (
             args.get("profile") is None
             and args.get("farm_id") is None
             and args.get("queue_id") is None
             and args.get("storage_profile_id") is None
+            and job_id
         ):
             config_file.set_setting("defaults.job_id", job_id)
 
@@ -241,9 +283,23 @@ def bundle_submit(
             exception_type=str(type(exc)),
         )
         raise
+    finally:
+        if snapshot_tmpdir:
+            snapshot_tmpdir.cleanup()
 
 
 @cli_bundle.command(name="gui-submit")
+@click.option(
+    "-p",
+    "--parameter",
+    multiple=True,
+    callback=validate_parameters,
+    help=(
+        "Initial values in the GUI for the job template's parameters. Can be provided as key-value pairs, inline JSON strings, "
+        "or as paths to a JSON or YAML document. Later values for repeated parameter names take precedence. "
+        'Examples: --parameter MyParam=5 -p file://parameter_file.json -p \'{"OtherParam": "10"}\''
+    ),
+)
 @click.argument("job_bundle_dir", required=False)
 @click.option(
     "--browse",
@@ -280,7 +336,7 @@ def bundle_submit(
 )
 @_handle_error
 def bundle_gui_submit(
-    job_bundle_dir, browse, output, install_gui, submitter_name, known_asset_path, **args
+    parameter, job_bundle_dir, browse, output, install_gui, submitter_name, known_asset_path, **args
 ):
     """
     Opens a GUI to submit an Open Job Description job bundle.
@@ -301,6 +357,7 @@ def bundle_gui_submit(
             browse=browse,
             submitter_name=submitter_name,
             known_asset_paths=known_asset_path,
+            job_parameters=parameter,
         )
 
         if not submitter:
@@ -310,28 +367,22 @@ def bundle_gui_submit(
 
         app.exec()
 
-        response = None
-        if submitter:
-            response = submitter.create_job_response
-
         _print_response(
             output=output,
-            submitted=True if response else False,
             job_bundle_dir=job_bundle_dir,
             job_history_bundle_dir=submitter.job_history_bundle_dir,
-            job_id=response["jobId"] if response else None,
+            job_id=submitter.job_id,
         )
 
 
 def _print_response(
     output: str,
-    submitted: bool,
     job_bundle_dir: str,
     job_history_bundle_dir: Optional[str],
     job_id: Optional[str],
 ):
     if output == "json":
-        if submitted:
+        if job_id:
             response: dict[str, Any] = {
                 "status": "SUBMITTED",
                 "jobId": job_id,
@@ -341,7 +392,7 @@ def _print_response(
         else:
             click.echo(json.dumps({"status": "CANCELED"}))
     else:
-        if submitted:
+        if job_id:
             click.echo("Submitted job bundle:")
             click.echo(f"   {job_bundle_dir}")
             click.echo(f"Job ID: {job_id}")

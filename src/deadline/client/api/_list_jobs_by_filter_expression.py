@@ -7,7 +7,7 @@ __all__ = ["_list_jobs_by_filter_expression"]
 from typing import Any
 import boto3
 
-from deadline.client.api._session import get_default_client_config
+from deadline.client.api._session import get_session_client
 from botocore.exceptions import ClientError
 from deadline.client.exceptions import DeadlineOperationError
 
@@ -60,7 +60,8 @@ def _list_jobs_by_filter_expression(
       boto3_session (boto3.Session): The boto3 Session for AWS API access.
       farm_id (str): The Farm ID.
       queue_id (str): The Queue ID.
-      filter_expressions (dict[str, Any]): The filter expression to apply to jobs.
+      filter_expressions (dict[str, Any]): The filter expression to apply to jobs. This is nested one level in a
+            filter expression provided to deadline:SearchJobs, so cannot include a groupFilter.
 
     Returns:
       The list of all jobs in the queue that satisfy the provided filter expression. Each job is as returned by the deadline:SearchJobs API.
@@ -101,7 +102,7 @@ def _list_jobs_by_filter_expression(
     # This holds {job_id: job_from_search_jobs_call, ...}
     result_jobs = {}
 
-    deadline = boto3_session.client("deadline", config=get_default_client_config())
+    deadline = get_session_client(boto3_session, "deadline")
 
     # Sort jobs in ascending order of the timestamp field
     sort_expressions = [{"fieldSort": {"name": "CREATED_AT", "sortOrder": "ASCENDING"}}]

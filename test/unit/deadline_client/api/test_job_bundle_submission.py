@@ -912,6 +912,59 @@ def test_create_job_from_job_bundle_with_single_asset_file(
         ]
 
 
+def test_create_job_from_job_bundle_with_target_task_run_status(
+    fresh_deadline_config,
+    temp_job_bundle_dir,
+):
+    """
+    Test that create_job_from_job_bundle passes the target_task_run_status parameter to create_job.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+
+    # Create a minimal template file like other tests do
+    with open(os.path.join(temp_job_bundle_dir, "template.json"), "w", encoding="utf8") as f:
+        f.write('{"specificationVersion": "jobtemplate-2023-09", "name": "TestJob", "steps": []}')
+
+    with patch_calls_for_create_job_from_job_bundle() as mock:
+        api.create_job_from_job_bundle(
+            temp_job_bundle_dir,
+            target_task_run_status="SUSPENDED",
+            queue_parameter_definitions=[],
+        )
+
+        # Verify that targetTaskRunStatus was passed to create_job
+        create_job_call = mock.get_boto3_client().create_job.call_args
+        assert create_job_call is not None
+        assert create_job_call.kwargs["targetTaskRunStatus"] == "SUSPENDED"
+
+
+def test_create_job_from_job_bundle_without_target_task_run_status(
+    fresh_deadline_config,
+    temp_job_bundle_dir,
+):
+    """
+    Test that create_job_from_job_bundle does not pass targetTaskRunStatus when not specified.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+
+    # Create a minimal template file like other tests do
+    with open(os.path.join(temp_job_bundle_dir, "template.json"), "w", encoding="utf8") as f:
+        f.write('{"specificationVersion": "jobtemplate-2023-09", "name": "TestJob", "steps": []}')
+
+    with patch_calls_for_create_job_from_job_bundle() as mock:
+        api.create_job_from_job_bundle(
+            temp_job_bundle_dir,
+            queue_parameter_definitions=[],
+        )
+
+        # Verify that targetTaskRunStatus was not passed to create_job
+        create_job_call = mock.get_boto3_client().create_job.call_args
+        assert create_job_call is not None
+        assert "targetTaskRunStatus" not in create_job_call.kwargs
+
+
 get_job_responses = [
     pytest.param(
         [
@@ -986,7 +1039,23 @@ def test_wait_for_create_job_to_complete_timeout():
         "lifecycleStatusMessage": MOCK_STATUS_MESSAGE,
     }
 
-    with pytest.raises(TimeoutError), patch.object(time, "sleep"):
+    # Mock time.time to simulate timeout after a few iterations
+    mock_times = [
+        0,
+        0.5,
+        1.5,
+        3.5,
+        7.5,
+        12.5,
+        17.5,
+        22.5,
+        27.5,
+        32.5,
+        301,
+    ]  # Last value exceeds 300s timeout
+    with pytest.raises(TimeoutError), patch.object(time, "sleep"), patch.object(
+        time, "time", side_effect=mock_times
+    ):
         api.wait_for_create_job_to_complete(
             farm_id=MOCK_FARM_ID,
             queue_id=MOCK_QUEUE_ID,

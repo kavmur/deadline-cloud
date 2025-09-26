@@ -1,5 +1,111 @@
-## 0.50.1 (2025-06-04)
+## 0.53.0 (2025-09-15)
 
+### BREAKING CHANGES
+
+* Removed `create_job_response` attribute of `ui.dialogs.SubmitJobToDeadlineDialog` (#791) ([`6587e4e`](https://github.com/aws-deadline/deadline-cloud/commit/6587e4e60b04d150c6f47eb526c883336a20ae22))
+  *  Since `0.51.1`, this was deprecated and its value was always set to `None`
+* Removed `deadline.api.attachment_upload` and `deadline.api.attachment_download` from the public API (#819) ([`832ac45`](https://github.com/aws-deadline/deadline-cloud/commit/832ac45355ab2c76d0bc8364323e2d834a84ed20))
+  *   These APIs are still under active development and will undergo iterations before being made public/stable
+
+### Features
+* Add detailed tooltips to grayed-out submit button (#833) ([`e5aeb45`](https://github.com/aws-deadline/deadline-cloud/commit/e5aeb457a305136f81bf7e6fdaa973ac48832d10))
+* Add `deadline job requeue-tasks` command ([`c593aee`](https://github.com/aws-deadline/deadline-cloud/commit/c593aeefed11dc4f64919f7f84c58795c4ce8840))
+* Add `fileCount` property to the `summary` JSON message output by `deadline job download-output --output json` (#816) ([`b9ed949`](https://github.com/aws-deadline/deadline-cloud/commit/b9ed9498830b8d186c9485d6e7da36b29221093a))
+* Add `deadlinew` command and `--redirect-output` option to `deadline` ([`86fa0a6`](https://github.com/aws-deadline/deadline-cloud/commit/86fa0a6d699dec42539363e7d0bc08ae0801d6f5))
+* Add `--profile` option to `deadline queue sync-output` ([`b5478d6`](https://github.com/aws-deadline/deadline-cloud/commit/b5478d6a863d8a3dfd5a3e4f2a5df90e1adff4d0))
+
+### Bug Fixes
+
+* authentication status text not visible in light mode (#839) ([`d5f3a77`](https://github.com/aws-deadline/deadline-cloud/commit/d5f3a77be0757b5e14397a9a71192a17f9ec03c2))
+
+## 0.52.1 (2025-08-26)
+
+### Features
+* Support automatic download of job attachments output (#804) ([`767bdb1`](https://github.com/aws-deadline/deadline-cloud/commit/767bdb150358650c064bc1c175145ab320ee1d81))
+
+### Bug Fixes
+* Fix config file corruption when file is locked by another process (#803) ([`76bdbb8`](https://github.com/aws-deadline/deadline-cloud/commit/76bdbb89c2cb680804d59d163a6268244f440a80))
+* CHECK_BOX parameter isn't enabled on load when value is ON, YES, or 1 (#799) ([`a8bb931`](https://github.com/aws-deadline/deadline-cloud/commit/a8bb9310695619f4fd8cda7a7c84ba63067bc06a))
+
+## 0.52.0 (2025-08-21)
+
+### BREAKING CHANGES
+
+* refactor the authorization UI dialog (#751) ([`5882533`](https://github.com/aws-deadline/deadline-cloud/commit/5882533ca8a3e65a0cc36083998521b1631f92a1))
+  * The DeadlineAuthenticationStatusWidget class has been rewritten and the AuthenticationStatusGroup widget class has been removed. Details that were present in the AuthenticationStatusGroup are now available in the DeadlineAuthenticationStatuswidget. The login/logout buttons are now defined in the DeadlineAuthenticationStatusWidget and have been removed from the SubmitJobToDeadlineDialog and the DeadlineConfigDialog.
+
+### Features
+* Added optional target_task_run_status parameter to create_job_from_job_bundle and deadline bundle submit (#753) ([`344b6f6`](https://github.com/aws-deadline/deadline-cloud/commit/344b6f67a6c1122833f227555b6f8b20a3f126f0))
+
+### Bug Fixes
+* Long path handling for CREATE_COPY file conflict resolution during job download (#782) ([`bbf5af1`](https://github.com/aws-deadline/deadline-cloud/commit/bbf5af1073fea4a639cc78d03b830f5eeff87f50))
+* Submission window doesn't close after a successful submission (#775) ([`3c40b37`](https://github.com/aws-deadline/deadline-cloud/commit/3c40b370d3ef1ef5aaca0100295ff366fe014f4c))
+* QSpinBox values not updating without focus loss (#770) ([`fb6741d`](https://github.com/aws-deadline/deadline-cloud/commit/fb6741d8a54b5d7d317d4520107772c7ca6f643f))
+* Change the return type for OnCreateJobBundleCallback to accept None. (#760) ([`822052f`](https://github.com/aws-deadline/deadline-cloud/commit/822052fc7ddabcf9ebe0aaefc58e345e181eeb0d))
+* Switching job causes submission error in GUI submitter (#757) ([`a3a1eba`](https://github.com/aws-deadline/deadline-cloud/commit/a3a1eba49a75aeaad810e229acc27f29cf1369a0))
+
+### Experimental
+These changes are experimental and are subject to change.
+
+* Incremental/Automatic Downloads
+  * Add storage profile support for incremental download (#773) ([`d7fd976`](https://github.com/aws-deadline/deadline-cloud/commit/d7fd976ab71695cc7bb9b5bae30a2e12aacfad2e))
+  * Add internal functions to support path mapping (#764) ([`5a28a64`](https://github.com/aws-deadline/deadline-cloud/commit/5a28a648604970280f505583567e1ad82a5ed86e))
+
+## 0.51.1 (2025-08-07)
+
+
+
+### Bug Fixes
+* Submission window doesn't close after a successful submission (#775) ([`1fb33c7`](https://github.com/aws-deadline/deadline-cloud/commit/1fb33c7295ca9b6ee3f65277c457982994c3c13b))
+
+## DEPRECATIONS
+
+* The parameter `create_job_response` is being removed from `ui.dialogs.SubmitJobToDeadlineDialog` in `0.53.0`. It has been replaced with `job_id` which is set when a job submission has succeeded.
+
+## 0.51.0 (2025-07-28)
+
+
+### BREAKING CHANGES
+* The behavior for the `auto_accept` configuration option has changed to automatically accept the default option that would be presented interactively. One exception is in a GUI context, when automatically accepting would cancel the operation.
+* The parameter `decide_cancel_submission_callback` is removed from api.`create_job_from_job_bundle`, and a new parameter `interactive_confirmation_callback` replaces it. The previous callback included business logic that is now in the create job function, and the callback's purpose is now solely to present an interactive confirmation prompt.
+* The parameter `create_job_response` is no longer set after a job submission in `ui.dialogs.SubmitJobToDeadlineDialog`.
+* The function `start_submission` has been removed from `ui.dialogs.SubmitJobProgressDialog`. It has been replaced with `start_job_submission` which now starts job submission in a background thread. If you relied on the return value of `start_submission`, you must now connect to the `submission_thread_succeeded` parameter which is a `qtpy.QtCore.Signal`.
+
+### Features
+* Add account IDs to telemetry events (#742) ([`43f7c0e`](https://github.com/aws-deadline/deadline-cloud/commit/43f7c0e4bb9c8988624067ad237a0f8ecb652aea))
+* Improved job identification in command output with clearer job names/IDs and more readable timestamps (#725) ([`a7883e0`](https://github.com/aws-deadline/deadline-cloud/commit/a7883e082edcd2b9cefd4059a1a679e8926fdab5))
+* Added ability to detect when virtual file system (VFS) fails to launch properly (#731) ([`e517659`](https://github.com/aws-deadline/deadline-cloud/commit/e5176598cc859584217eaea00d5e6a14a40070d5))
+* Persistent job submission settings that remember your previously used values for priority and retry settings (#711) ([`358e6c7`](https://github.com/aws-deadline/deadline-cloud/commit/358e6c7d4fa2cf194d77c400803415eeb4dd5ffa))
+* New commands to monitor job completion and access job logs directly from CLI and API (#697) ([`8ea699f`](https://github.com/aws-deadline/deadline-cloud/commit/8ea699f1a28d7b3ebe4ad31573e72b5380af21fe))
+* Performance improvements through better client caching for network operations (#708) ([`5665fa8`](https://github.com/aws-deadline/deadline-cloud/commit/5665fa8813ef8bb5c01a57c9604bbaed7015d859))
+
+### Bug Fixes
+* Uncaught telemetry exception when collecting account ID (#754) ([`212b659`](https://github.com/aws-deadline/deadline-cloud/commit/212b659859f91ee14ebb551b3b1cce42ff8d64d8))
+* Circular dependencies when importing deadline.job_attachements.api (#741) ([`f64ff50`](https://github.com/aws-deadline/deadline-cloud/commit/f64ff50cef6ad485519de5610a079b4acfa03c76))
+* UI Elements in Deadline Config Dialog stretch and squish in unpredictable ways (#746) ([`768b2e8`](https://github.com/aws-deadline/deadline-cloud/commit/768b2e8bafff429776fba9b36ab053007dc0ece8))
+* installer_version.txt remains after uninstallation (#736) ([`3f880b8`](https://github.com/aws-deadline/deadline-cloud/commit/3f880b8114bd65ffa5d6663ca7e0c99a5399ef79))
+* Profile settings GUI widget widths are truncated (#724) ([`5fdb0f1`](https://github.com/aws-deadline/deadline-cloud/commit/5fdb0f1ca347ba082bb48556aa57e9128d930e11))
+* Long paths on Windows cause relative_to function to operate unexpectedly (#715) ([`2e70d5d`](https://github.com/aws-deadline/deadline-cloud/commit/2e70d5d9b894630d8711369ca1509bf2f0a082fb))
+* Job submission doesn't properly warn users when submitting files from directories not explicitly specified (#673) ([`a8bf21b`](https://github.com/aws-deadline/deadline-cloud/commit/a8bf21bc1af85b6f67694defdb93fee49f3516a6))
+* Windows paths larger than MAX_PATH cause errors when uploading jobs with assets (#705) ([`b841f61`](https://github.com/aws-deadline/deadline-cloud/commit/b841f617047cc6a6354a6f694b7bac2423e2dcee))
+* Deadline executables remain in PATH after uninstallation (#686) ([`fcf4a75`](https://github.com/aws-deadline/deadline-cloud/commit/fcf4a75c01d733c37ee509a156589ff8911dc4cf))
+
+### Experimental
+
+These changes are experimental and are subject to change.
+
+* Incremental/Automatic Downloads:
+  * Ability to automatically download output files from completed jobs (#730) ([`9b3d17a`](https://github.com/aws-deadline/deadline-cloud/commit/9b3d17a38a8cb9568d2838ab566844b91d3a6ca8))
+  * Support for consolidated download of session outputs and their attachments (#706) ([`67a43e3`](https://github.com/aws-deadline/deadline-cloud/commit/67a43e323f26eb2cf2ffbe495e71b8e269ad1c44))
+  * Identification of changed sessions for efficient incremental downloads (#726) ([`5fdc5bf`](https://github.com/aws-deadline/deadline-cloud/commit/5fdc5bf7ce03599286d48cbbfdf6f4701724dec7))
+  * Ability to detect new jobs that need downloads vs already processed jobs (#721) ([`9a9d59e`](https://github.com/aws-deadline/deadline-cloud/commit/9a9d59edc6474410452bbb3ed9b1f860c25d96a6))
+  * Search capability for finding jobs based on specified criteria (#719) ([`93c71a6`](https://github.com/aws-deadline/deadline-cloud/commit/93c71a6ed266197317cdc18f9c3d0f550963e4e0))
+  * Documentation of conditions and guarantees in download state tracking (#718) ([`8c922de`](https://github.com/aws-deadline/deadline-cloud/commit/8c922debfc3b30317cf86ae310c53ef594cedb2c))
+  * Save and restore download progress between application runs (#691) ([`7acfcba`](https://github.com/aws-deadline/deadline-cloud/commit/7acfcba3271e633c81c0887d1a049ebd933a97d0))
+  * Prevention of race conditions in simultaneous download operations (#682) ([`da853ac`](https://github.com/aws-deadline/deadline-cloud/commit/da853ac0b5e1d15e7e2c60d908e71f81d0b39521))
+  * Fix for reliability issues when multiple downloads run concurrently (#682) ([`da853ac`](https://github.com/aws-deadline/deadline-cloud/commit/da853ac0b5e1d15e7e2c60d908e71f81d0b39521))
+
+## 0.50.1 (2025-06-04)
 
 
 ### Bug Fixes

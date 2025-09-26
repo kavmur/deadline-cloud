@@ -21,7 +21,12 @@ from dateutil.tz import tzutc  # type: ignore[import]
 from deadline.client import api, config
 from deadline.client.cli import main
 from deadline.client.cli._groups import job_group
-from deadline.client.cli._groups.job_group import _get_summary_of_files_to_download_message
+from deadline.client.cli._groups.job_group import (
+    _get_summary_of_files_to_download_message,
+    _get_json_line,
+    _get_download_summary_message,
+)
+from deadline.client.exceptions import DeadlineOperationError, DeadlineOperationTimedOut
 from deadline.job_attachments.models import (
     FileConflictResolution,
     JobAttachmentS3Settings,
@@ -906,6 +911,416 @@ def test_get_summary_of_files_to_download_message_windows(
     )
 
 
+def test_cli_job_wait_succeeded(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 0 when job succeeds.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="SUCCEEDED", failed_tasks=[], elapsed_time=10.5
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        # Verify get_job was called to get job name
+        boto3_client_mock().get_job.assert_called_once_with(
+            farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
+        )
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job Name" in result.output
+        assert "Job completed with status: SUCCEEDED" in result.output
+        assert "Elapsed time: 10.5 seconds" in result.output
+        assert "No failed tasks found." in result.output
+        assert result.exit_code == 0
+
+
+def test_cli_job_wait_timeout(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 1 when timeout occurs.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.side_effect = DeadlineOperationTimedOut(
+            "Timeout waiting for job job-123 to complete after 30.0 seconds"
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Timeout waiting for job" in result.output
+        assert result.exit_code == 1
+
+
+def test_cli_job_wait_failed(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 2 when job fails.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="FAILED",
+            failed_tasks=[
+                api.FailedTask(
+                    step_id="step-123",
+                    task_id="task-456",
+                    step_name="Render Step",
+                    parameters={"frame": {"int": 1}},
+                    session_id="session-789",
+                )
+            ],
+            elapsed_time=15.2,
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job Name" in result.output
+        assert "Job completed with status: FAILED" in result.output
+        assert "Elapsed time: 15.2 seconds" in result.output
+        assert "Found 1 failed tasks:" in result.output
+        assert result.exit_code == 2
+
+
+def test_cli_job_wait_canceled(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 3 when job is canceled.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="CANCELED", failed_tasks=[], elapsed_time=5.0
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job Name" in result.output
+        assert "Job completed with status: CANCELED" in result.output
+        assert "Elapsed time: 5.0 seconds" in result.output
+        assert "No failed tasks found." in result.output
+        assert result.exit_code == 3
+
+
+def test_cli_job_wait_archived(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 4 when job is archived.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="ARCHIVED", failed_tasks=[], elapsed_time=8.3
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job Name" in result.output
+        assert "Job completed with status: ARCHIVED" in result.output
+        assert "Elapsed time: 8.3 seconds" in result.output
+        assert "No failed tasks found." in result.output
+        assert result.exit_code == 4
+
+
+def test_cli_job_wait_not_compatible(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 5 when job is not compatible.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="NOT_COMPATIBLE", failed_tasks=[], elapsed_time=2.1
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job Name" in result.output
+        assert "Job completed with status: NOT_COMPATIBLE" in result.output
+        assert "Elapsed time: 2.1 seconds" in result.output
+        assert "No failed tasks found." in result.output
+        assert result.exit_code == 5
+
+
+def test_cli_job_wait_succeeded_with_failed_tasks_returns_exit_code_2(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 2 when there are failed tasks, even if status is SUCCEEDED.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="SUCCEEDED",
+            failed_tasks=[
+                api.FailedTask(
+                    step_id="step-123",
+                    task_id="task-456",
+                    step_name="Render Step",
+                    parameters={"frame": {"int": 1}},
+                    session_id="session-789",
+                )
+            ],
+            elapsed_time=12.0,
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job Name" in result.output
+        assert "Job completed with status: SUCCEEDED" in result.output
+        assert "Found 1 failed tasks:" in result.output
+        assert result.exit_code == 2
+
+
+def test_cli_job_wait_json_output_succeeded(fresh_deadline_config):
+    """
+    Test that job wait command with JSON output returns exit code 0 when job succeeds.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="SUCCEEDED", failed_tasks=[], elapsed_time=10.5
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait", "--output", "json"])
+
+        # Parse the JSON output
+        output_data = json.loads(result.output)
+        assert output_data["jobId"] == MOCK_JOB_ID
+        assert output_data["jobName"] == "Test Job Name"
+        assert output_data["status"] == "SUCCEEDED"
+        assert output_data["elapsedTime"] == pytest.approx(10.5)
+        assert output_data["failedTasks"] == []
+        assert result.exit_code == 0
+
+
+def test_cli_job_wait_json_output_failed(fresh_deadline_config):
+    """
+    Test that job wait command with JSON output returns exit code 2 when job fails.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as boto3_client_mock:
+        mock_wait.return_value = api.JobCompletionResult(
+            status="FAILED",
+            failed_tasks=[
+                api.FailedTask(
+                    step_id="step-123",
+                    task_id="task-456",
+                    step_name="Render Step",
+                    parameters={"frame": {"int": 1}},
+                    session_id="session-789",
+                )
+            ],
+            elapsed_time=15.2,
+        )
+
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait", "--output", "json"])
+
+        # Parse the JSON output
+        output_data = json.loads(result.output)
+        assert output_data["jobId"] == MOCK_JOB_ID
+        assert output_data["jobName"] == "Test Job Name"
+        assert output_data["status"] == "FAILED"
+        assert output_data["elapsedTime"] == pytest.approx(15.2)
+        assert len(output_data["failedTasks"]) == 1
+        assert output_data["failedTasks"][0]["stepId"] == "step-123"
+        assert output_data["failedTasks"][0]["taskId"] == "task-456"
+        assert output_data["failedTasks"][0]["stepName"] == "Render Step"
+        assert output_data["failedTasks"][0]["sessionId"] == "session-789"
+        assert result.exit_code == 2
+
+
+def test_cli_job_wait_unknown_status_returns_exit_code_2(fresh_deadline_config):
+    """
+    Test that job wait command returns exit code 2 for unknown status.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as mock_get_client:
+        mock_client = mock_get_client.return_value
+        mock_client.get_job.return_value = {"jobId": MOCK_JOB_ID, "name": "Test Job"}
+
+        mock_wait.return_value = api.JobCompletionResult(
+            status="UNKNOWN_STATUS", failed_tasks=[], elapsed_time=3.0
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job" in result.output
+        assert "Job completed with status: UNKNOWN_STATUS" in result.output
+        assert result.exit_code == 2
+
+
+def test_cli_job_wait_timeout_json_output(fresh_deadline_config):
+    """
+    Test that job wait command handles timeout correctly with JSON output.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as mock_get_client:
+        mock_client = mock_get_client.return_value
+        mock_client.get_job.return_value = {"jobId": MOCK_JOB_ID, "name": "Test Job"}
+
+        mock_wait.side_effect = DeadlineOperationTimedOut(
+            "Timeout waiting for job job-123 to complete after 30.0 seconds"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait", "--output", "json"])
+
+        # Parse the JSON output
+        output_data = json.loads(result.output)
+        assert (
+            output_data["error"] == "Timeout waiting for job job-123 to complete after 30.0 seconds"
+        )
+        assert output_data["timeout"] is True
+        assert output_data["jobId"] == MOCK_JOB_ID
+        assert output_data["jobName"] == "Test Job"
+        assert result.exit_code == 1
+
+
+def test_cli_job_wait_error_handling(fresh_deadline_config):
+    """
+    Test that job wait command handles non-timeout errors correctly.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as mock_get_client:
+        mock_client = mock_get_client.return_value
+        mock_client.get_job.return_value = {"jobId": MOCK_JOB_ID, "name": "Test Job"}
+
+        mock_wait.side_effect = DeadlineOperationError("Test error message")
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait"])
+
+        assert "Job ID: " + MOCK_JOB_ID in result.output
+        assert "Job Name: Test Job" in result.output
+        assert "Error waiting for job completion: Test error message" in result.output
+        assert result.exit_code == 2
+
+
+def test_cli_job_wait_error_handling_json_output(fresh_deadline_config):
+    """
+    Test that job wait command handles non-timeout errors correctly with JSON output.
+    """
+    config.set_setting("defaults.farm_id", MOCK_FARM_ID)
+    config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
+
+    with patch.object(api, "wait_for_job_completion") as mock_wait, patch.object(
+        api, "get_boto3_client"
+    ) as mock_get_client:
+        mock_client = mock_get_client.return_value
+        mock_client.get_job.return_value = {"jobId": MOCK_JOB_ID, "name": "Test Job"}
+
+        mock_wait.side_effect = DeadlineOperationError("Test error message")
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["job", "wait", "--output", "json"])
+
+        # Parse the JSON output
+        output_data = json.loads(result.output)
+        assert output_data["error"] == "Test error message"
+        assert output_data["jobId"] == MOCK_JOB_ID
+        assert output_data["jobName"] == "Test Job"
+        assert result.exit_code == 2
+
+
 def test_cli_job_download_output_handle_web_url_with_optional_input(fresh_deadline_config):
     """
     Confirm that the CLI interface prints out the expected list of
@@ -1058,7 +1473,7 @@ def test_cli_job_download_output_with_different_asset_root_path_format_than_job(
         job_group.os.path,
         "expanduser",
         return_value=tmp_path,
-    ) as mock_expanduser:
+    ) as mock_expanduser, patch.object(api._telemetry.TelemetryClient, "record_event", MagicMock()):
         mock_download = MagicMock()
         mock_download.return_value = DownloadSummaryStatistics(
             total_time=12,
@@ -1132,3 +1547,97 @@ You are about to download files which may come from multiple root directories. H
         assert "Download Summary:" in result.output
         assert result.exit_code == 0
         mock_expanduser.assert_any_call("~")
+
+
+class TestJsonLineHelpers:
+    """Tests for JSON line helper functions."""
+
+    def test_get_json_line_basic(self):
+        """Test _get_json_line with basic parameters."""
+        result = _get_json_line("test", "value")
+        parsed = json.loads(result)
+
+        assert parsed["messageType"] == "test"
+        assert parsed["value"] == "value"
+        assert len(parsed) == 2  # Only messageType and value
+
+    def test_get_json_line_with_none_extra_properties(self):
+        """Test _get_json_line with explicit None extra_properties."""
+        result = _get_json_line("test", "value", extra_properties=None)
+        parsed = json.loads(result)
+
+        assert parsed["messageType"] == "test"
+        assert parsed["value"] == "value"
+        assert len(parsed) == 2  # Only messageType and value
+
+    def test_get_json_line_with_kwargs(self):
+        """Test _get_json_line with additional properties."""
+        result = _get_json_line(
+            "summary", "Downloaded 5 files", extra_properties={"fileCount": 5, "status": "complete"}
+        )
+        parsed = json.loads(result)
+
+        assert parsed["messageType"] == "summary"
+        assert parsed["value"] == "Downloaded 5 files"
+        assert parsed["fileCount"] == 5
+        assert parsed["status"] == "complete"
+
+    def test_get_json_line_with_list_value(self):
+        """Test _get_json_line with list value and extra properties."""
+        result = _get_json_line("path", ["/path1", "/path2"], extra_properties={"count": 2})
+        parsed = json.loads(result)
+
+        assert parsed["messageType"] == "path"
+        assert parsed["value"] == ["/path1", "/path2"]
+        assert parsed["count"] == 2
+
+    def test_get_download_summary_message_json_with_file_count(self):
+        """Test _get_download_summary_message includes fileCount in JSON format."""
+        from deadline.job_attachments.progress_tracker import DownloadSummaryStatistics
+
+        # Create mock download summary
+        summary = DownloadSummaryStatistics()
+        summary.processed_files = 3
+        summary.processed_bytes = 1024
+        summary.total_time = 2.5
+        summary.transfer_rate = 409.6
+        summary.file_counts_by_root_directory = {"/downloads": 3}
+
+        result = _get_download_summary_message(summary, is_json_format=True)
+        parsed = json.loads(result)
+
+        assert parsed["messageType"] == "summary"
+        assert parsed["value"] == "Downloaded 3 files"
+        assert parsed["fileCount"] == 3
+
+    def test_get_download_summary_message_json_zero_files(self):
+        """Test _get_download_summary_message with zero files."""
+        from deadline.job_attachments.progress_tracker import DownloadSummaryStatistics
+
+        summary = DownloadSummaryStatistics()
+        summary.processed_files = 0
+
+        result = _get_download_summary_message(summary, is_json_format=True)
+        parsed = json.loads(result)
+
+        assert parsed["messageType"] == "summary"
+        assert parsed["value"] == "Downloaded 0 files"
+        assert parsed["fileCount"] == 0
+
+    def test_get_download_summary_message_non_json_unchanged(self):
+        """Test _get_download_summary_message non-JSON format is unchanged."""
+        from deadline.job_attachments.progress_tracker import DownloadSummaryStatistics
+
+        summary = DownloadSummaryStatistics()
+        summary.processed_files = 2
+        summary.processed_bytes = 512
+        summary.total_time = 1.0
+        summary.transfer_rate = 512.0
+        summary.file_counts_by_root_directory = {"/downloads": 2}
+
+        result = _get_download_summary_message(summary, is_json_format=False)
+
+        # Should be human-readable format, not JSON
+        assert "Download Summary:" in result
+        assert "Downloaded 2 files totaling" in result
+        assert not result.startswith('{"messageType":')

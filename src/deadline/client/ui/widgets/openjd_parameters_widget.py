@@ -452,6 +452,7 @@ class _JobTemplateIntSpinBoxWidget(_JobTemplateWidget):
                 widget.setToolTip(parameter["description"])
 
     def value(self):
+        self.edit_control.interpretText()
         return self.edit_control.value()
 
     def set_value(self, value):
@@ -537,6 +538,7 @@ class _JobTemplateFloatSpinBoxWidget(_JobTemplateWidget):
                 widget.setToolTip(parameter["description"])
 
     def value(self):
+        self.edit_control.interpretText()
         return self.edit_control.value()
 
     def set_value(self, value):
@@ -777,7 +779,7 @@ class _JobTemplateCheckBoxWidget(_JobTemplateWidget):
             return self.false_value
 
     def set_value(self, value: str) -> None:
-        if value.lower() == "true":
+        if value == self.true_value:
             self.edit_control.setChecked(True)
         else:
             self.edit_control.setChecked(False)
@@ -801,8 +803,9 @@ class _JobTemplateHiddenWidget(_JobTemplateWidget):
         "FLOAT",
         "STRING",
     ]
-    OPENJD_DEFAULT_VALUE: str = ""  # All hidden fields require a default value to be provided
-    OPENJD_REQUIRED_PARAMETER_FIELDS: List[str] = ["default"]
+
+    OPENJD_DEFAULT_VALUE: str = ""  # Hidden parameters do not require defaults
+    OPENJD_REQUIRED_PARAMETER_FIELDS: List[str] = []
     OPENJD_DISALLOWED_PARAMETER_FIELDS: List[str] = []
 
     def __init__(self, parent: QWidget, parameter: Dict[str, Any]):

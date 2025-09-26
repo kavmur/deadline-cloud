@@ -1,20 +1,23 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 import atexit
+from functools import lru_cache, wraps
 import json
 import logging
 import os
 import platform
 import uuid
 import random
+import sys
 import time
 
+from botocore.exceptions import ClientError, NoCredentialsError
 from configparser import ConfigParser
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from queue import Queue, Full
 from threading import Thread
-from typing import Any, Callable, Dict, List, Optional, TypeVar, cast
+from typing import Any, Callable, Dict, Optional, TypeVar, cast
 from urllib import request, error
 
 from ...job_attachments.progress_tracker import SummaryStatistics
@@ -23,6 +26,7 @@ from ._session import (
     get_monitor_id,
     get_user_and_identity_store_id,
     get_boto3_client,
+    get_boto3_session,
 )
 from ..config import config_file
 from .. import version
@@ -313,6 +317,12 @@ class TelemetryClient:
     def record_event(
         self, event_type: str, event_details: Dict[str, Any], *, from_gui: bool = False
     ):
+        try:
+            self.update_common_details({"accountId": self.get_account_id(get_boto3_session())})
+        except Exception as e:
+            # Print any errors when getting the boto3 session, then proceed
+            logger.debug(f"Could not add account ID to telemetry: {str(e)}")
+
         event_details.update(self._common_details)
         event_details["usage_mode"] = "GUI" if from_gui else "CLI"
         self._put_telemetry_record(
@@ -321,6 +331,19 @@ class TelemetryClient:
                 event_details=event_details,
             )
         )
+
+    @lru_cache
+    def get_account_id(self, boto3_session) -> Optional[str]:
+        """
+        Retrieves the AWS account ID for the current user.
+
+        If the user is not authenticated, print an error message
+        """
+        try:
+            return boto3_session.client("sts").get_caller_identity()["Account"]
+        except (ClientError, NoCredentialsError) as e:
+            print(f"Could not add account ID to telemetry: {str(e)}")
+            return None
 
     def update_common_details(self, details: Dict[str, Any]):
         """Updates the dict of common data that is included in every telemetry request."""
@@ -361,14 +384,14 @@ def get_deadline_cloud_library_telemetry_client(
     return get_telemetry_client("deadline-cloud-library", version, config=config)
 
 
-def record_success_fail_telemetry_event(**decorator_kwargs: Dict[str, Any]) -> Callable[..., F]:
+def record_success_fail_telemetry_event(**decorator_kwargs: Any) -> Callable[[F], F]:
     """
     Decorator to try catch a function. Sends a success / fail telemetry event.
     :param ** Python variable arguments. See https://docs.python.org/3/glossary.html#term-parameter.
     """
 
     def inner(function: F) -> F:
-        def wrapper(*args: List[Any], **kwargs: Dict[str, Any]) -> Any:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             """
             Wrapper to try-catch a function for telemetry
             :param * Python variable argument. See https://docs.python.org/3/glossary.html#term-parameter
@@ -381,29 +404,33 @@ def record_success_fail_telemetry_event(**decorator_kwargs: Dict[str, Any]) -> C
                 return result
             finally:
                 event_name = decorator_kwargs.get("metric_name", function.__name__)
+
+                event_details: dict = decorator_kwargs.get("event_details", {})
+                event_details["is_success"] = success
+                raised_exception = sys.exc_info()[1]
+                if raised_exception is not None:
+                    event_details["exception_type"] = type(raised_exception).__name__
+
                 get_deadline_cloud_library_telemetry_client().record_event(
                     event_type=f"com.amazon.rum.deadline.{event_name}",
-                    event_details={"is_success": success},
+                    event_details=event_details,
                 )
 
+        wrapper.__doc__ = function.__doc__
         return cast(F, wrapper)
 
     return inner
 
 
-def record_function_latency_telemetry_event(**decorator_kwargs: Dict[str, Any]) -> Callable[[F], F]:
+def record_function_latency_telemetry_event(**decorator_kwargs: Any) -> Callable[[F], F]:
     """
     Decorator to time a function. Sends a latency telemetry event.
     :param ** Python variable arguments. See https://docs.python.org/3/glossary.html#term-parameter.
     """
 
     def inner(function: F) -> F:
-        def wrapper(*args: List[Any], **kwargs: Dict[str, Any]) -> Any:
-            """
-            Wrapper to time a function for latency telemetry
-            :param * Python variable argument. See https://docs.python.org/3/glossary.html#term-parameter
-            :param ** Python variable argument. See https://docs.python.org/3/glossary.html#term-parameter
-            """
+        @wraps(function)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             start_t = time.perf_counter_ns()
             ret_val = function(*args, **kwargs)
             end_t = time.perf_counter_ns()
