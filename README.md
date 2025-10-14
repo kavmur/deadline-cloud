@@ -316,7 +316,12 @@ Available modes:
 
 The AWS Deadline Cloud client includes an MCP server that enables AI assistants to interact with AWS Deadline Cloud resources through natural language. The MCP server uses the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) for simplified tool registration while maintaining full protocol compliance.
 
-See [MCP Guide](https://github.com/aws-deadline/deadline-cloud/blob/release/docs/mcp_guide.md) for more information.
+Instead of remembering complex CLI commands, you can simply ask your AI assistant:
+```
+"Submit the render job in /path/to/my-job-bundle with priority 80 to my render queue"
+```
+
+See [MCP Guide](docs/mcp_guide.md) for more information.
 
 
 ## Code of Conduct
