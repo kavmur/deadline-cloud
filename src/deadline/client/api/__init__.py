@@ -38,6 +38,7 @@ __all__ = [
     "list_jobs",
     "list_fleets",
     "list_storage_profiles_for_queue",
+    "list_sessions_for_job",
     "get_queue_user_boto3_session",
     "get_queue_parameter_definitions",
     "get_telemetry_client",
@@ -90,6 +91,7 @@ from ._list_apis import (
     list_jobs,
     list_fleets,
     list_storage_profiles_for_queue,
+    list_sessions_for_job,
 )
 
 from ._queue_parameters import get_queue_parameter_definitions
