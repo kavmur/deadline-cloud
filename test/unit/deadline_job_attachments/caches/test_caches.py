@@ -187,76 +187,6 @@ class TestHashCache:
                 )
                 assert hc.get_entry("/no/file", HashAlgorithm.XXH128) is None
 
-    def test_table_creation_idempotent(self, tmpdir):
-        """
-        Tests that creating the hash cache table multiple times doesn't cause errors
-        """
-        cache_dir = tmpdir.mkdir("cache")
-
-        # Create the cache and table first time
-        with HashCache(cache_dir) as hc1:
-            test_entry = HashCacheEntry(
-                file_path="/test/file",
-                hash_algorithm=HashAlgorithm.XXH128,
-                file_hash="abc123",
-                last_modified_time="1234.56",
-            )
-            hc1.put_entry(test_entry)
-            retrieved_entry = hc1.get_entry("/test/file", HashAlgorithm.XXH128)
-            assert retrieved_entry == test_entry
-
-        # Create the cache again with the same directory - should not fail
-        with HashCache(cache_dir) as hc2:
-            # Should be able to retrieve the previously stored entry
-            retrieved_entry = hc2.get_entry("/test/file", HashAlgorithm.XXH128)
-            assert retrieved_entry == test_entry
-
-            # Should be able to add new entries
-            new_entry = HashCacheEntry(
-                file_path="/test/file2",
-                hash_algorithm=HashAlgorithm.XXH128,
-                file_hash="def456",
-                last_modified_time="5678.91",
-            )
-            hc2.put_entry(new_entry)
-            retrieved_new_entry = hc2.get_entry("/test/file2", HashAlgorithm.XXH128)
-            assert retrieved_new_entry == new_entry
-
-    def test_table_already_exists_no_error(self, tmpdir):
-        """
-        Tests that no error is raised when trying to create a table that already exists
-        This specifically tests the 'IF NOT EXISTS' clause in the CREATE TABLE statement
-        """
-        import sqlite3
-
-        cache_dir = tmpdir.mkdir("cache")
-        db_path = os.path.join(cache_dir, "hash_cache.db")
-
-        # Create a HashCache instance to get the correct table name and schema
-        hc = HashCache(cache_dir)
-
-        with sqlite3.connect(db_path) as conn:
-            # Create the database and table first using the create query
-            conn.execute(hc.create_query)
-            # Running the same create query again to create existing table
-            # This is to simulate the case when the query runs concurrently trying to create the same table
-            conn.execute(hc.create_query)
-            conn.commit()
-
-        # Now verify normal operations work
-        with hc:
-            test_entry = HashCacheEntry(
-                file_path="/test/file",
-                hash_algorithm=HashAlgorithm.XXH128,
-                file_hash="abc123",
-                last_modified_time="1234.56",
-            )
-            hc.put_entry(test_entry)
-            retrieved_entry = hc.get_entry("/test/file", HashAlgorithm.XXH128)
-            assert retrieved_entry == test_entry
-            retrieved_entry = hc.get_entry("/test/file", HashAlgorithm.XXH128)
-            assert retrieved_entry == test_entry
-
 
 class TestS3CheckCache:
     """
@@ -383,64 +313,166 @@ class TestS3CheckCache:
 
             assert actual_entry is None
 
-    def test_table_creation_idempotent(self, tmpdir):
-        """
-        Tests that creating the S3 check cache table multiple times doesn't cause errors
-        """
-        cache_dir = tmpdir.mkdir("cache")
-
-        # Create the cache and table first time
-        with S3CheckCache(cache_dir) as s3c1:
-            test_entry = S3CheckCacheEntry(
-                s3_key="bucket/Data/test-hash",
-                last_seen_time=str(datetime.now().timestamp()),
-            )
-            s3c1.put_entry(test_entry)
-            retrieved_entry = s3c1.get_entry("bucket/Data/test-hash")
-            assert retrieved_entry == test_entry
-
-        # Create the cache again with the same directory - should not fail
-        with S3CheckCache(cache_dir) as s3c2:
-            # Should be able to retrieve the previously stored entry
-            retrieved_entry = s3c2.get_entry("bucket/Data/test-hash")
-            assert retrieved_entry == test_entry
-
-            # Should be able to add new entries
-            new_entry = S3CheckCacheEntry(
-                s3_key="bucket/Data/another-hash",
-                last_seen_time=str(datetime.now().timestamp()),
-            )
-            s3c2.put_entry(new_entry)
-            retrieved_new_entry = s3c2.get_entry("bucket/Data/another-hash")
-            assert retrieved_new_entry == new_entry
-
-    def test_table_already_exists_no_error(self, tmpdir):
-        """
-        Tests that no error is raised when trying to create a table that already exists
-        This specifically tests the 'IF NOT EXISTS' clause in the CREATE TABLE statement
-        """
-        import sqlite3
+    def test_concurrent_read_write_operations_should_not_lock(self, tmpdir):
+        """Test that concurrent reads and writes don't cause database locked errors"""
+        import threading
+        import time
 
         cache_dir = tmpdir.mkdir("cache")
-        db_path = os.path.join(cache_dir, "s3_check_cache.db")
+        errors = {}
+        results = {}
 
-        # Create a S3CheckCache instance to get the correct table name and schema
-        s3c = S3CheckCache(cache_dir)
+        with HashCache(cache_dir) as cache:
 
-        with sqlite3.connect(db_path) as conn:
-            # Create the database and table first using the create query
-            conn.execute(s3c.create_query)
-            # Running the same create query again to create existing table
-            # This is to simulate the case when the query runs concurrently trying to create the same table
-            conn.execute(s3c.create_query)
-            conn.commit()
+            def aggressive_writer_thread(thread_id):
+                """Thread that aggressively writes to cache with transactions"""
+                try:
+                    for i in range(20):  # More operations
+                        entry = HashCacheEntry(
+                            file_path=f"/test/file_{thread_id}_{i}.txt",
+                            hash_algorithm=HashAlgorithm.XXH128,
+                            file_hash=f"hash_{thread_id}_{i}",
+                            last_modified_time=str(time.time()),
+                        )
+                        cache.put_entry(entry)
+                except Exception as e:
+                    errors[f"writer_{thread_id}"] = str(e)
 
-        # Now verify normal operations work
-        with s3c:
-            test_entry = S3CheckCacheEntry(
-                s3_key="bucket/Data/test-hash",
-                last_seen_time=str(datetime.now().timestamp()),
+            def aggressive_reader_thread(thread_id):
+                """Thread that aggressively reads from cache using thread-local connection"""
+                try:
+                    conn = cache.get_local_connection()
+                    for i in range(50):  # Many more read operations
+                        # Try to read - this should never get "database is locked"
+                        entry = cache.get_connection_entry(
+                            f"/test/file_{i % 4}_{i % 5}.txt", HashAlgorithm.XXH128, conn
+                        )
+                        results[f"reader_{thread_id}_{i}"] = entry is not None
+                except Exception as e:
+                    errors[f"reader_{thread_id}"] = str(e)
+
+            # Start many more threads concurrently
+            threads = []
+
+            # Start 5 writer threads (more write contention)
+            for i in range(5):
+                t = threading.Thread(target=aggressive_writer_thread, args=(i,))
+                threads.append(t)
+                t.start()
+
+            # Start 10 reader threads (more read contention)
+            for i in range(10):
+                t = threading.Thread(target=aggressive_reader_thread, args=(i,))
+                threads.append(t)
+                t.start()
+
+            # Wait for all threads
+            for t in threads:
+                t.join()
+
+        # Should have no "database is locked" errors
+        locked_errors = {k: v for k, v in errors.items() if "database is locked" in v}
+        assert len(locked_errors) == 0, f"Got database locked errors: {locked_errors}"
+        assert len(errors) == 0, f"Got other errors: {errors}"
+
+    def test_large_db_concurrent_operations_expose_timeout_issues(self, tmpdir):
+        """Test that large database (~50MB) exposes timeout issues without proper SQLite configuration"""
+        import threading
+        import time
+
+        cache_dir = tmpdir.mkdir("cache")
+
+        # Prepopulate database to ~50MB (approximately 500K records for more realistic size)
+        print("Prepopulating database to ~50MB...")
+        with HashCache(cache_dir) as cache:
+            # Initialize cache with one entry to ensure table exists
+            init_entry = HashCacheEntry(
+                file_path="/init.txt",
+                hash_algorithm=HashAlgorithm.XXH128,
+                file_hash="init_hash",
+                last_modified_time=str(time.time()),
             )
-            s3c.put_entry(test_entry)
-            retrieved_entry = s3c.get_entry("bucket/Data/test-hash")
-            assert retrieved_entry == test_entry
+            cache.put_entry(init_entry)
+
+            conn = cache.db_connection
+            batch_data = []
+            batch_size = 10000
+
+            for i in range(500000):  # Increased to 500K records
+                batch_data.append(
+                    (
+                        f"/large/test/file_{i:06d}.txt",
+                        HashAlgorithm.XXH128.value,
+                        f"hash_{i:032x}" * 2,  # Longer hash to increase record size
+                        str(time.time() + i),
+                    )
+                )
+
+                if len(batch_data) >= batch_size:
+                    conn.executemany(
+                        f"INSERT OR REPLACE INTO {cache.table_name} (file_path, hash_algorithm, file_hash, last_modified_time) VALUES (?, ?, ?, ?)",
+                        batch_data,
+                    )
+                    conn.commit()
+                    batch_data = []
+                    if i % 50000 == 0:
+                        print(f"  Added {i + 1} records...")
+
+            # Insert remaining records
+            if batch_data:
+                conn.executemany(
+                    f"INSERT OR REPLACE INTO {cache.table_name} (file_path, hash_algorithm, file_hash, last_modified_time) VALUES (?, ?, ?, ?)",
+                    batch_data,
+                )
+                conn.commit()
+
+        print("Database prepopulated. Starting aggressive concurrency test...")
+
+        errors = {}
+        results = {}
+
+        with HashCache(cache_dir) as cache:
+
+            def aggressive_writer_thread(thread_id):
+                try:
+                    for i in range(50):  # More write operations
+                        entry = HashCacheEntry(
+                            file_path=f"/concurrent/file_{thread_id}_{i}.txt",
+                            hash_algorithm=HashAlgorithm.XXH128,
+                            file_hash=f"concurrent_hash_{thread_id}_{i}",
+                            last_modified_time=str(time.time()),
+                        )
+                        cache.put_entry(entry)
+                except Exception as e:
+                    errors[f"writer_{thread_id}"] = str(e)
+
+            def aggressive_reader_thread(thread_id):
+                try:
+                    conn = cache.get_local_connection()
+                    for i in range(100):  # Many more read operations
+                        entry = cache.get_connection_entry(
+                            f"/large/test/file_{i:06d}.txt", HashAlgorithm.XXH128, conn
+                        )
+                        results[f"reader_{thread_id}_{i}"] = entry is not None
+                except Exception as e:
+                    errors[f"reader_{thread_id}"] = str(e)
+
+            # Start many concurrent operations on large database
+            threads = []
+            for i in range(15):  # More writer threads
+                t = threading.Thread(target=aggressive_writer_thread, args=(i,))
+                threads.append(t)
+                t.start()
+
+            for i in range(25):  # More reader threads
+                t = threading.Thread(target=aggressive_reader_thread, args=(i,))
+                threads.append(t)
+                t.start()
+
+            for t in threads:
+                t.join()
+
+        # With proper SQLite configuration (timeout + WAL), should have no lock errors
+        locked_errors = {k: v for k, v in errors.items() if "database is locked" in v}
+        assert len(locked_errors) == 0, f"Got database locked errors: {locked_errors}"
+        assert len(errors) == 0, f"Got other errors: {errors}"

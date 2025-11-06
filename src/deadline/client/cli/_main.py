@@ -5,6 +5,7 @@ The AWS Deadline Cloud CLI interface.
 """
 
 import logging
+import os
 import sys
 from logging import getLogger
 from typing import Optional
@@ -89,10 +90,25 @@ class ContextTrackingGroup(click.Group):
     help="When using the --redirect-output option, controls whether to append to or replace the output file.",
 )
 @click.pass_context
-def main(ctx: click.Context, log_level: Optional[str], redirect_output: str, redirect_mode: str):
+def deadline(
+    ctx: click.Context, log_level: Optional[str], redirect_output: str, redirect_mode: str
+):
     """
-    The AWS Deadline Cloud CLI provides functionality to interact with the AWS Deadline Cloud
-    service.
+    The `deadline` command provides functionality to interact with [AWS Deadline Cloud].
+
+    For example, you can submit jobs to a queue with `deadline bundle submit` or
+    `deadline bundle gui-submit`, monitor the status of a job with `deadline job get` and
+    `deadline job logs`, wait for job completion with `deadline job wait`, then retrieve
+    the output with `deadline job download-output`. You can also use
+    `deadline queue sync-output` as an alternative to downloading individual jobs,
+    to retrieve all the output of jobs in a queue over time.
+
+    The command works with any local AWS credentials you have configured, or together with
+    [Deadline Cloud monitor] to use AWS credentials from logging into the identity provider
+    configured for your farm.
+
+    [AWS Deadline Cloud]: https://aws.amazon.com/deadline-cloud/
+    [Deadline Cloud monitor]: https://docs.aws.amazon.com/deadline-cloud/latest/userguide/working-with-deadline-monitor.html
     """
     if redirect_output:
         # Set both stdout and stderr to write to the specified file, writing in line buffering mode
@@ -101,6 +117,10 @@ def main(ctx: click.Context, log_level: Optional[str], redirect_output: str, red
         else:
             open_mode = "w"
         sys.stdout = sys.stderr = open(redirect_output, open_mode, encoding="utf-8", buffering=1)
+    elif sys.stdout and os.name == "nt":
+        # Force the output encoding to be UTF-8 on Windows. Commands like `deadline job logs` print out logs that
+        # can include unicode, and this enables output without errors.
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore
     if log_level is None:
         log_level = _get_default_log_level()
 

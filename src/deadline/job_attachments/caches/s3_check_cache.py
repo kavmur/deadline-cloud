@@ -48,7 +48,7 @@ class S3CheckCache(CacheDB):
 
     def __init__(self, cache_dir: Optional[str] = None) -> None:
         table_name: str = f"s3checkV{self.CACHE_DB_VERSION}"
-        create_query: str = f"CREATE TABLE IF NOT EXISTS s3checkV{self.CACHE_DB_VERSION}(s3_key text primary key, last_seen_time timestamp)"
+        create_query: str = f"CREATE TABLE s3checkV{self.CACHE_DB_VERSION}(s3_key text primary key, last_seen_time timestamp)"
         super().__init__(
             cache_name=self.CACHE_NAME,
             table_name=table_name,
@@ -58,7 +58,10 @@ class S3CheckCache(CacheDB):
 
     def get_connection_entry(self, s3_key: str, connection) -> Optional[S3CheckCacheEntry]:
         """
-        Checks if an entry exists in the cache, and returns it if it hasn't expired.
+        Returns an entry from the hash cache, if it exists.  This is the "lockless" (Doesn't take
+        the main db_lock protecting db_connection) version of get_entry which expects a connection
+        parameter for the connection which will be used to read from the DB - this can generally
+        be the thread local connection returned by get_local_connection()
         """
 
         entry_vals = connection.execute(

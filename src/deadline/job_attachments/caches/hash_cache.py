@@ -51,7 +51,7 @@ class HashCache(CacheDB):
 
     def __init__(self, cache_dir: Optional[str] = None) -> None:
         table_name: str = f"hashesV{self.CACHE_DB_VERSION}"
-        create_query: str = f"CREATE TABLE IF NOT EXISTS hashesV{self.CACHE_DB_VERSION}(file_path blob primary key, hash_algorithm text secondary key, file_hash text, last_modified_time timestamp)"
+        create_query: str = f"CREATE TABLE hashesV{self.CACHE_DB_VERSION}(file_path blob primary key, hash_algorithm text secondary key, file_hash text, last_modified_time timestamp)"
         super().__init__(
             cache_name=self.CACHE_NAME,
             table_name=table_name,
@@ -63,7 +63,10 @@ class HashCache(CacheDB):
         self, file_path_key: str, hash_algorithm: HashAlgorithm, connection
     ) -> Optional[HashCacheEntry]:
         """
-        Returns an entry from the hash cache, if it exists.
+        Returns an entry from the hash cache, if it exists.  This is the "lockless" (Doesn't take
+        the main db_lock protecting db_connection) version of get_entry which expects a connection
+        parameter for the connection which will be used to read from the DB - this can generally
+        be the thread local connection returned by get_local_connection()
         """
         if not self.enabled:
             return None

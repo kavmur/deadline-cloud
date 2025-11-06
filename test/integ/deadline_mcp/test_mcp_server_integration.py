@@ -16,7 +16,7 @@ from deadline._mcp import server
 from deadline._mcp.registry import TOOL_REGISTRY, get_tool_definition
 
 from deadline.client.api import list_farms
-from deadline.client.cli._mcp_server import cli_mcp_server
+from deadline.client.cli._groups.mcp_server_command import cli_mcp_server
 from click.testing import CliRunner
 
 
@@ -146,7 +146,7 @@ async def test_tool_description_extraction(get_boto_session):
         f"Got: {list_farms_tool.description}"
     )
 
-    assert "Calls the deadline:ListFarms API call" in list_farms_tool.description, (
+    assert "Calls the [deadline:ListFarms] API call" in list_farms_tool.description, (
         "Tool description should come from the function's doc string"
     )
 
@@ -358,7 +358,7 @@ def test_mcp_server_startup_telemetry():
     mock_telemetry_client = MagicMock()
 
     with patch(
-        "deadline.client.cli._mcp_server.get_deadline_cloud_library_telemetry_client"
+        "deadline.client.cli._groups.mcp_server_command.get_deadline_cloud_library_telemetry_client"
     ) as mock_get_client, patch("deadline._mcp.server.main") as mock_mcp_main:
         mock_get_client.return_value = mock_telemetry_client
 

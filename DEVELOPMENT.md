@@ -5,7 +5,8 @@ This documentation provides guidance on developer workflows for working with the
 Table of Contents:
 * [Development Environment Setup](#development-environment-setup)
 * [The Development Loop](#the-development-loop)
-* [Code Organization](#code-organization)
+* [Documentation](#documentation)
+   * [Code Organization](#code-organization)
 * [Testing](#testing)
    * [Writing tests](#writing-tests)
    * [Unit tests](#unit-tests)
@@ -70,9 +71,17 @@ Note: Hatch uses [environments](https://hatch.pypa.io/1.12/environment/) to isol
 for this package from your system or virtual environment Python. If your build/test run is not making sense, then
 sometimes pruning (`hatch env prune`) all of these environments for the package can fix the issue.
 
-## Code Organization
+## Documentation
 
-Please see [code organization](docs/code_organization.md).
+Work-in-progress documentation for the Deadline Cloud client library is in progress in the [docs](docs/index.html) directory.
+Documentation is written in Markdown using [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/).
+You can run the command `hatch run docs:serve` to start a server for viewing the documentation on localhost. When the command
+starts, it prints the URL for viewing the docs locally, and will automatically update them when the `mkdocs.yml` configuration
+or various markdown files are modified. The `hatch run docs:build` will build the documentation to static html content.
+
+### Code Organization
+
+Please see [code organization](docs/code_reference/code_organization.md).
 
 ## Testing
 
@@ -216,6 +225,89 @@ For the Python library interface:
 * Changing the location that a file or directory is created should be considered to be a breaking change. These locations have a tendancy to become
   de-facto parts of the public contract as users build automation that assumes these locations is unchanged.
 
+Note that we enforce our public contract through GitHub actions. See the [API Change Detection section](scripts/README.md#api-change-detection) in the scripts README for more information about generating and validating API changes.
+
+#### Private Modules
+
+New code should reside in private modules (example: `_my_module.py`), which removes the need to mark imports, classes, and functions as private with an underscore.
+
+```python
+# _my_module.py
+import os
+
+class PublicClass:
+    def publicmethod(self):
+        pass
+    # We still need to mark this as private, since the class will be public
+    def _privatemethod(self):
+        pass
+
+class PrivateClass:
+    def privatemethod(self):
+        pass
+```
+
+Public contracts in private modules are defined by imports in the corresponding `__init__.py` in the same directory as the private module.
+
+```python
+# __init__.py
+
+from _my_module import PublicClass
+```
+
+#### Public Modules
+
+A public module (for example `my_module.py`) in this package will be defined with the following style:
+
+```python
+# my_module.py
+
+# The os module is not part of this file's external interface
+import os as _os
+
+# PublicClass is part of this file's external interface.
+class PublicClass:
+    def publicmethod(self):
+        pass
+
+    def _privatemethod(self):
+        pass
+
+# _PrivateClass is not part of this file's external interface.
+class _PrivateClass:
+    def publicmethod(self):
+        pass
+
+    def _privatemethod(self):
+        pass
+```
+
+#### On `import os as _os`
+
+Every module/symbol that is imported into a Python module becomes a part of that module's interface.
+Thus, if we have a module called `foo.py` such as:
+
+```python
+# foo.py
+
+import os
+```
+
+Then, the `os` module becomes part of the public interface for `foo.py` and a consumer of that module
+is free to do:
+
+```python
+from foo import os
+```
+
+We don't want all (generally, we don't want any) of our imports to become part of the public API for
+the module, so we import modules/symbols into a public module with the following style:
+
+```python
+import os as _os
+from typing import Dict as _Dict
+```
+
 ### Library Dependencies
 
 Library dependencies are Python packages required to build and run the Deadline Cloud Python project. Dependencies are specified in the `dependencies` section of `pyproject.toml`.
@@ -337,6 +429,6 @@ class MyCustomWidget(QWidget):
 
 # Profiling in Deadline Cloud
 
-Instead of runnning a deadline command as `deadline ...` run `pyinstrument -r html -m deadline ...`. 
+Instead of runnning a deadline command as `deadline ...` run `pyinstrument -r html -m deadline ...`.
 
-This will profile the current `deadline` command and open the results in an interactive window. 
+This will profile the current `deadline` command and open the results in an interactive window.
