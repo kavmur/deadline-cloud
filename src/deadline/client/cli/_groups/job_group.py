@@ -47,7 +47,9 @@ from .._common import _apply_cli_options_to_config, _cli_object_repr, _handle_er
 from .._main import deadline as main
 from ._sigint_handler import SigIntHandler
 from ...api._session import get_default_client_config
+from ...api._list_apis import list_sessions_for_job
 from .._timestamp_formatter import TimestampFormat, TimestampFormatter
+from ....common.session_utils import get_session_sort_key
 
 logger = logging.getLogger("deadline.client.cli")
 
@@ -1249,47 +1251,24 @@ def job_logs(
     # If session_id is not provided but job_id is, try to find the session
     if not session_id and job_id:
         try:
-            # Use paginator to get all sessions
-            paginator = deadline.get_paginator("list_sessions")
-            sessions = []
+            result = list_sessions_for_job(
+                config=config, farmId=farm_id, queueId=queue_id, jobId=job_id
+            )
+            sessions = result["sessions"]
 
-            for page in paginator.paginate(farmId=farm_id, queueId=queue_id, jobId=job_id):
-                sessions.extend(page.get("sessions", []))
-
-            if not sessions:
-                raise DeadlineOperationError(f"No sessions found for job {job_id}")
-            elif len(sessions) == 1:
+            if len(sessions) == 1:
                 session_id = sessions[0]["sessionId"]
                 if not is_json_output:
                     click.echo(f"Using the only available session: {session_id}")
             else:
-                # Multiple sessions found, select the latest one
-                # Prioritize ongoing sessions (no endedAt) over completed ones
-                # Among ongoing sessions, select the one that started most recently
-                # Among completed sessions, select the one that ended most recently
-                ongoing_sessions = [s for s in sessions if "endedAt" not in s]
-                completed_sessions = [s for s in sessions if "endedAt" in s]
-
-                if ongoing_sessions:
-                    # Always prefer ongoing sessions, select the most recently started one
-                    latest_session = max(
-                        ongoing_sessions,
-                        key=lambda s: s.get(
-                            "startedAt", datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
-                        ),
-                    )
-                else:
-                    # No ongoing sessions, select the most recently completed one
-                    latest_session = max(
-                        completed_sessions,
-                        key=lambda s: s.get(
-                            "endedAt", datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
-                        ),
-                    )
-
-                session_id = latest_session["sessionId"]
+                # Multiple sessions found, select the latest one using shared utility
+                # Prioritizes ongoing sessions over completed ones, then sorts by most recent time
+                sessions.sort(key=get_session_sort_key)
+                session_id = sessions[0]["sessionId"]
                 if not is_json_output:
                     click.echo(f"Using the latest session: {session_id}")
+        except DeadlineOperationError:
+            raise
         except ClientError as exc:
             raise DeadlineOperationError(
                 f"Failed to list sessions for job {job_id}:\n{exc}"

@@ -434,13 +434,11 @@ def test_cli_job_logs_with_job_id_single_session(fresh_deadline_config):
 
     with patch.object(api, "get_boto3_client") as boto3_client_mock, patch.object(
         api, "get_session_logs"
-    ) as mock_get_logs:
-        # Mock the paginator
-        paginator_mock = MagicMock()
-        boto3_client_mock().get_paginator.return_value = paginator_mock
-
-        # Set up the paginator to return a single session
-        paginator_mock.paginate.return_value = [{"sessions": [{"sessionId": "session-1"}]}]
+    ) as mock_get_logs, patch(
+        "deadline.client.cli._groups.job_group.list_sessions_for_job"
+    ) as mock_list_sessions:
+        # Mock list_sessions_for_job to return a single session
+        mock_list_sessions.return_value = {"sessions": [{"sessionId": "session-1"}]}
 
         # Mock get_job to return job name
         boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
@@ -476,10 +474,9 @@ def test_cli_job_logs_with_job_id_single_session(fresh_deadline_config):
             ],
         )
 
-        # Verify paginator was called correctly
-        boto3_client_mock().get_paginator.assert_called_once_with("list_sessions")
-        paginator_mock.paginate.assert_called_once_with(
-            farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
+        # Verify list_sessions_for_job was called correctly
+        mock_list_sessions.assert_called_once_with(
+            config=ANY, farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
         )
 
         # Verify get_job was called to get job name
@@ -513,14 +510,20 @@ def test_cli_job_logs_with_job_id_no_sessions(fresh_deadline_config):
     """
     config.set_setting("defaults.farm_id", MOCK_FARM_ID)
     config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
+    config.set_setting("defaults.job_id", MOCK_JOB_ID)
 
-    with patch.object(api, "get_boto3_client") as boto3_client_mock:
-        # Mock the paginator
-        paginator_mock = MagicMock()
-        boto3_client_mock().get_paginator.return_value = paginator_mock
+    with patch.object(api, "get_boto3_client") as boto3_client_mock, patch(
+        "deadline.client.cli._groups.job_group.list_sessions_for_job"
+    ) as mock_list_sessions:
+        # Mock get_job to return job name
+        boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
 
-        # Set up the paginator to return no sessions
-        paginator_mock.paginate.return_value = [{"sessions": []}]
+        # Mock list_sessions_for_job to raise DeadlineOperationError
+        from deadline.client.exceptions import DeadlineOperationError
+
+        mock_list_sessions.side_effect = DeadlineOperationError(
+            f"No sessions found for job {MOCK_JOB_ID}"
+        )
 
         runner = CliRunner()
         result = runner.invoke(
@@ -533,10 +536,9 @@ def test_cli_job_logs_with_job_id_no_sessions(fresh_deadline_config):
             ],
         )
 
-        # Verify paginator was called correctly
-        boto3_client_mock().get_paginator.assert_called_once_with("list_sessions")
-        paginator_mock.paginate.assert_called_once_with(
-            farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
+        # Verify list_sessions_for_job was called correctly
+        mock_list_sessions.assert_called_once_with(
+            config=ANY, farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
         )
 
         # Check error message
@@ -551,36 +553,28 @@ def test_cli_job_logs_with_pagination(fresh_deadline_config):
     config.set_setting("defaults.farm_id", MOCK_FARM_ID)
     config.set_setting("defaults.queue_id", MOCK_QUEUE_ID)
 
-    with patch.object(api, "get_boto3_client") as boto3_client_mock, patch.object(
+    with patch.object(api, "get_boto3_client"), patch.object(
         api, "get_session_logs"
-    ) as mock_get_logs:
-        # Mock the paginator
-        paginator_mock = MagicMock()
-        boto3_client_mock().get_paginator.return_value = paginator_mock
-
-        # Set up the paginator to return sessions across multiple pages
-        paginator_mock.paginate.return_value = [
-            {
-                "sessions": [
-                    {
-                        "sessionId": "session-1",
-                        "endedAt": datetime.datetime(
-                            2023, 1, 27, 7, 0, 0, tzinfo=datetime.timezone.utc
-                        ),
-                    }
-                ]
-            },
-            {
-                "sessions": [
-                    {
-                        "sessionId": "session-2",
-                        "endedAt": datetime.datetime(
-                            2023, 1, 27, 8, 0, 0, tzinfo=datetime.timezone.utc
-                        ),
-                    }
-                ]
-            },
-        ]
+    ) as mock_get_logs, patch(
+        "deadline.client.cli._groups.job_group.list_sessions_for_job"
+    ) as mock_list_sessions:
+        # Mock list_sessions_for_job to return sessions from multiple pages
+        mock_list_sessions.return_value = {
+            "sessions": [
+                {
+                    "sessionId": "session-1",
+                    "endedAt": datetime.datetime(
+                        2023, 1, 27, 7, 0, 0, tzinfo=datetime.timezone.utc
+                    ),
+                },
+                {
+                    "sessionId": "session-2",
+                    "endedAt": datetime.datetime(
+                        2023, 1, 27, 8, 0, 0, tzinfo=datetime.timezone.utc
+                    ),
+                },
+            ]
+        }
 
         # Mock the get_session_logs response
         mock_get_logs.return_value = api.SessionLogResult(
@@ -611,10 +605,9 @@ def test_cli_job_logs_with_pagination(fresh_deadline_config):
             ],
         )
 
-        # Verify paginator was called correctly
-        boto3_client_mock().get_paginator.assert_called_once_with("list_sessions")
-        paginator_mock.paginate.assert_called_once_with(
-            farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
+        # Verify list_sessions_for_job was called correctly
+        mock_list_sessions.assert_called_once_with(
+            config=ANY, farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
         )
 
         # Verify get_session_logs was called with the latest session ID
@@ -648,13 +641,13 @@ def test_cli_job_logs_with_job_id_prioritizes_ongoing_sessions(fresh_deadline_co
             MOCK_JOB_ID,  # defaults.job_id
         ]
 
-        with patch("deadline.client.api.get_boto3_client") as boto3_client_mock:
+        with patch("deadline.client.api.get_boto3_client"):
             with patch("deadline.client.api.get_session_logs") as mock_get_logs:
-                # Set up the paginator to return mix of ongoing and completed sessions
-                paginator_mock = MagicMock()
-                boto3_client_mock().get_paginator.return_value = paginator_mock
-                paginator_mock.paginate.return_value = [
-                    {
+                with patch(
+                    "deadline.client.cli._groups.job_group.list_sessions_for_job"
+                ) as mock_list_sessions:
+                    # Mock list_sessions_for_job to return mix of ongoing and completed sessions
+                    mock_list_sessions.return_value = {
                         "sessions": [
                             {
                                 "sessionId": "session-completed-recent",
@@ -690,57 +683,56 @@ def test_cli_job_logs_with_job_id_prioritizes_ongoing_sessions(fresh_deadline_co
                             },
                         ]
                     }
-                ]
 
-                # Mock the get_session_logs response
-                mock_get_logs.return_value = api.SessionLogResult(
-                    events=[
-                        api.LogEvent(
-                            timestamp=datetime.datetime(
-                                2023, 1, 27, 7, 30, 0, tzinfo=datetime.timezone.utc
+                    # Mock the get_session_logs response
+                    mock_get_logs.return_value = api.SessionLogResult(
+                        events=[
+                            api.LogEvent(
+                                timestamp=datetime.datetime(
+                                    2023, 1, 27, 7, 30, 0, tzinfo=datetime.timezone.utc
+                                ),
+                                message="Ongoing session log message",
+                                ingestion_time=datetime.datetime(
+                                    2023, 1, 27, 7, 30, 1, tzinfo=datetime.timezone.utc
+                                ),
+                                event_id="event-1",
                             ),
-                            message="Ongoing session log message",
-                            ingestion_time=datetime.datetime(
-                                2023, 1, 27, 7, 30, 1, tzinfo=datetime.timezone.utc
-                            ),
-                            event_id="event-1",
-                        ),
-                    ],
-                    count=1,
-                    next_token=None,
-                    log_group=f"/aws/deadline/{MOCK_FARM_ID}/{MOCK_QUEUE_ID}",
-                    log_stream="session-ongoing-newer",
-                )
+                        ],
+                        count=1,
+                        next_token=None,
+                        log_group=f"/aws/deadline/{MOCK_FARM_ID}/{MOCK_QUEUE_ID}",
+                        log_stream="session-ongoing-newer",
+                    )
 
-                runner = CliRunner()
-                result = runner.invoke(
-                    main,
-                    [
-                        "job",
-                        "logs",
-                        "--job-id",
-                        MOCK_JOB_ID,
-                    ],
-                )
+                    runner = CliRunner()
+                    result = runner.invoke(
+                        main,
+                        [
+                            "job",
+                            "logs",
+                            "--job-id",
+                            MOCK_JOB_ID,
+                        ],
+                    )
 
-                # Verify get_session_logs was called with the most recently started ongoing session
-                mock_get_logs.assert_called_once_with(
-                    farm_id=MOCK_FARM_ID,
-                    queue_id=MOCK_QUEUE_ID,
-                    session_id="session-ongoing-newer",  # Should prioritize ongoing session with most recent start
-                    limit=100,
-                    start_time=None,
-                    end_time=None,
-                    next_token=None,
-                    config=ANY,
-                )
+                    # Verify get_session_logs was called with the most recently started ongoing session
+                    mock_get_logs.assert_called_once_with(
+                        farm_id=MOCK_FARM_ID,
+                        queue_id=MOCK_QUEUE_ID,
+                        session_id="session-ongoing-newer",  # Should prioritize ongoing session with most recent start
+                        limit=100,
+                        start_time=None,
+                        end_time=None,
+                        next_token=None,
+                        config=ANY,
+                    )
 
-                # Check output
-                assert "Using the latest session: session-ongoing-newer" in result.output, (
-                    result.output
-                )
-                assert "Ongoing session log message" in result.output, result.output
-                assert result.exit_code == 0, result.output
+                    # Check output
+                    assert "Using the latest session: session-ongoing-newer" in result.output, (
+                        result.output
+                    )
+                    assert "Ongoing session log message" in result.output, result.output
+                    assert result.exit_code == 0, result.output
 
 
 def test_cli_job_logs_with_job_id_selects_most_recent_completed_when_no_ongoing(
@@ -758,13 +750,13 @@ def test_cli_job_logs_with_job_id_selects_most_recent_completed_when_no_ongoing(
             MOCK_JOB_ID,  # defaults.job_id
         ]
 
-        with patch("deadline.client.api.get_boto3_client") as boto3_client_mock:
+        with patch("deadline.client.api.get_boto3_client"):
             with patch("deadline.client.api.get_session_logs") as mock_get_logs:
-                # Set up the paginator to return only completed sessions
-                paginator_mock = MagicMock()
-                boto3_client_mock().get_paginator.return_value = paginator_mock
-                paginator_mock.paginate.return_value = [
-                    {
+                with patch(
+                    "deadline.client.cli._groups.job_group.list_sessions_for_job"
+                ) as mock_list_sessions:
+                    # Mock list_sessions_for_job to return only completed sessions
+                    mock_list_sessions.return_value = {
                         "sessions": [
                             {
                                 "sessionId": "session-completed-older",
@@ -786,57 +778,56 @@ def test_cli_job_logs_with_job_id_selects_most_recent_completed_when_no_ongoing(
                             },
                         ]
                     }
-                ]
 
-                # Mock the get_session_logs response
-                mock_get_logs.return_value = api.SessionLogResult(
-                    events=[
-                        api.LogEvent(
-                            timestamp=datetime.datetime(
-                                2023, 1, 27, 9, 0, 0, tzinfo=datetime.timezone.utc
+                    # Mock the get_session_logs response
+                    mock_get_logs.return_value = api.SessionLogResult(
+                        events=[
+                            api.LogEvent(
+                                timestamp=datetime.datetime(
+                                    2023, 1, 27, 9, 0, 0, tzinfo=datetime.timezone.utc
+                                ),
+                                message="Most recent completed session log",
+                                ingestion_time=datetime.datetime(
+                                    2023, 1, 27, 9, 0, 1, tzinfo=datetime.timezone.utc
+                                ),
+                                event_id="event-1",
                             ),
-                            message="Most recent completed session log",
-                            ingestion_time=datetime.datetime(
-                                2023, 1, 27, 9, 0, 1, tzinfo=datetime.timezone.utc
-                            ),
-                            event_id="event-1",
-                        ),
-                    ],
-                    count=1,
-                    next_token=None,
-                    log_group=f"/aws/deadline/{MOCK_FARM_ID}/{MOCK_QUEUE_ID}",
-                    log_stream="session-completed-newer",
-                )
+                        ],
+                        count=1,
+                        next_token=None,
+                        log_group=f"/aws/deadline/{MOCK_FARM_ID}/{MOCK_QUEUE_ID}",
+                        log_stream="session-completed-newer",
+                    )
 
-                runner = CliRunner()
-                result = runner.invoke(
-                    main,
-                    [
-                        "job",
-                        "logs",
-                        "--job-id",
-                        MOCK_JOB_ID,
-                    ],
-                )
+                    runner = CliRunner()
+                    result = runner.invoke(
+                        main,
+                        [
+                            "job",
+                            "logs",
+                            "--job-id",
+                            MOCK_JOB_ID,
+                        ],
+                    )
 
-                # Verify get_session_logs was called with the most recently completed session
-                mock_get_logs.assert_called_once_with(
-                    farm_id=MOCK_FARM_ID,
-                    queue_id=MOCK_QUEUE_ID,
-                    session_id="session-completed-newer",  # Should select most recently ended session
-                    limit=100,
-                    start_time=None,
-                    end_time=None,
-                    next_token=None,
-                    config=ANY,
-                )
+                    # Verify get_session_logs was called with the most recently completed session
+                    mock_get_logs.assert_called_once_with(
+                        farm_id=MOCK_FARM_ID,
+                        queue_id=MOCK_QUEUE_ID,
+                        session_id="session-completed-newer",  # Should select most recently ended session
+                        limit=100,
+                        start_time=None,
+                        end_time=None,
+                        next_token=None,
+                        config=ANY,
+                    )
 
-                # Check output
-                assert "Using the latest session: session-completed-newer" in result.output, (
-                    result.output
-                )
-                assert "Most recent completed session log" in result.output, result.output
-                assert result.exit_code == 0, result.output
+                    # Check output
+                    assert "Using the latest session: session-completed-newer" in result.output, (
+                        result.output
+                    )
+                    assert "Most recent completed session log" in result.output, result.output
+                    assert result.exit_code == 0, result.output
 
 
 def test_cli_job_logs_with_job_id_selects_most_recent_among_multiple_ongoing(fresh_deadline_config):
@@ -854,11 +845,11 @@ def test_cli_job_logs_with_job_id_selects_most_recent_among_multiple_ongoing(fre
 
         with patch("deadline.client.api.get_boto3_client") as boto3_client_mock:
             with patch("deadline.client.api.get_session_logs") as mock_get_logs:
-                # Set up the paginator to return multiple ongoing sessions
-                paginator_mock = MagicMock()
-                boto3_client_mock().get_paginator.return_value = paginator_mock
-                paginator_mock.paginate.return_value = [
-                    {
+                with patch(
+                    "deadline.client.cli._groups.job_group.list_sessions_for_job"
+                ) as mock_list_sessions:
+                    # Mock list_sessions_for_job to return multiple ongoing sessions
+                    mock_list_sessions.return_value = {
                         "sessions": [
                             {
                                 "sessionId": "session-ongoing-oldest",
@@ -883,65 +874,64 @@ def test_cli_job_logs_with_job_id_selects_most_recent_among_multiple_ongoing(fre
                             },
                         ]
                     }
-                ]
 
-                # Mock get_job to return job name
-                boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
+                    # Mock get_job to return job name
+                    boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}
 
-                # Mock the get_session_logs response
-                mock_get_logs.return_value = api.SessionLogResult(
-                    events=[
-                        api.LogEvent(
-                            timestamp=datetime.datetime(
-                                2023, 1, 27, 7, 0, 0, tzinfo=datetime.timezone.utc
+                    # Mock the get_session_logs response
+                    mock_get_logs.return_value = api.SessionLogResult(
+                        events=[
+                            api.LogEvent(
+                                timestamp=datetime.datetime(
+                                    2023, 1, 27, 7, 0, 0, tzinfo=datetime.timezone.utc
+                                ),
+                                message="Most recent ongoing session log",
+                                ingestion_time=datetime.datetime(
+                                    2023, 1, 27, 7, 0, 1, tzinfo=datetime.timezone.utc
+                                ),
+                                event_id="event-1",
                             ),
-                            message="Most recent ongoing session log",
-                            ingestion_time=datetime.datetime(
-                                2023, 1, 27, 7, 0, 1, tzinfo=datetime.timezone.utc
-                            ),
-                            event_id="event-1",
-                        ),
-                    ],
-                    count=1,
-                    next_token=None,
-                    log_group=f"/aws/deadline/{MOCK_FARM_ID}/{MOCK_QUEUE_ID}",
-                    log_stream="session-ongoing-newest",
-                )
+                        ],
+                        count=1,
+                        next_token=None,
+                        log_group=f"/aws/deadline/{MOCK_FARM_ID}/{MOCK_QUEUE_ID}",
+                        log_stream="session-ongoing-newest",
+                    )
 
-                runner = CliRunner()
-                result = runner.invoke(
-                    main,
-                    [
-                        "job",
-                        "logs",
-                        "--job-id",
-                        MOCK_JOB_ID,
-                    ],
-                )
+                    runner = CliRunner()
+                    result = runner.invoke(
+                        main,
+                        [
+                            "job",
+                            "logs",
+                            "--job-id",
+                            MOCK_JOB_ID,
+                        ],
+                    )
 
-                # Verify get_job was called to get job name
-                boto3_client_mock().get_job.assert_called_once_with(
-                    farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
-                )
+                    # Verify get_job was called to get job name
+                    boto3_client_mock().get_job.assert_called_once_with(
+                        farmId=MOCK_FARM_ID, queueId=MOCK_QUEUE_ID, jobId=MOCK_JOB_ID
+                    )
 
-                # Verify get_session_logs was called with the most recently started ongoing session
-                mock_get_logs.assert_called_once_with(
-                    farm_id=MOCK_FARM_ID,
-                    queue_id=MOCK_QUEUE_ID,
-                    session_id="session-ongoing-newest",  # Should select most recently started ongoing session
-                    limit=100,
-                    start_time=None,
-                    end_time=None,
-                    next_token=None,
-                    config=ANY,
-                )
+                    # Verify get_session_logs was called with the most recently started ongoing session
+                    mock_get_logs.assert_called_once_with(
+                        farm_id=MOCK_FARM_ID,
+                        queue_id=MOCK_QUEUE_ID,
+                        session_id="session-ongoing-newest",  # Should select most recently started ongoing session
+                        limit=100,
+                        start_time=None,
+                        end_time=None,
+                        next_token=None,
+                        config=ANY,
+                    )
 
-                # Check output includes job information
-                assert "Using the latest session: session-ongoing-newest" in result.output
-                assert "Job ID: " + MOCK_JOB_ID in result.output
-                assert "Job Name: Test Job Name" in result.output
-                assert "Most recent ongoing session log" in result.output
-                assert result.exit_code == 0
+                    # Check output includes job information
+                    assert "Using the latest session: session-ongoing-newest" in result.output
+                    assert "Job ID: " + MOCK_JOB_ID in result.output
+                    assert "Job Name: Test Job Name" in result.output
+                    assert "Most recent ongoing session log" in result.output
+                    assert result.exit_code == 0
 
 
 def test_cli_job_logs_json_with_job_info(fresh_deadline_config):
@@ -954,13 +944,11 @@ def test_cli_job_logs_json_with_job_info(fresh_deadline_config):
 
     with patch.object(api, "get_boto3_client") as boto3_client_mock, patch.object(
         api, "get_session_logs"
-    ) as mock_get_logs:
-        # Mock the paginator
-        paginator_mock = MagicMock()
-        boto3_client_mock().get_paginator.return_value = paginator_mock
-
-        # Set up the paginator to return a single session
-        paginator_mock.paginate.return_value = [{"sessions": [{"sessionId": "session-1"}]}]
+    ) as mock_get_logs, patch(
+        "deadline.client.cli._groups.job_group.list_sessions_for_job"
+    ) as mock_list_sessions:
+        # Mock list_sessions_for_job to return a single session
+        mock_list_sessions.return_value = {"sessions": [{"sessionId": "session-1"}]}
 
         # Mock get_job to return job name
         boto3_client_mock().get_job.return_value = {"name": "Test Job Name"}

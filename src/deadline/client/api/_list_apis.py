@@ -115,3 +115,23 @@ def list_storage_profiles_for_queue(config=None, **kwargs):
     return _call_paginated_deadline_list_api(
         deadline.list_storage_profiles_for_queue, "storageProfiles", **kwargs
     )
+
+
+@api.record_function_latency_telemetry_event()
+def list_sessions_for_job(config=None, **kwargs):
+    """
+    Calls the [deadline:ListSessions] API call for a specific job. If the response is paginated,
+    it repeatedly calls the API to get all the sessions.
+
+    Args:
+        config: Optional configuration
+        **kwargs: Must include farmId, queueId, and jobId
+
+    Returns:
+        Dictionary with 'sessions' key containing list of session dictionaries
+
+    [deadline:ListSessions]: https://docs.aws.amazon.com/deadline-cloud/latest/APIReference/API_ListSessions.html
+    """
+
+    deadline = get_boto3_client("deadline", config=config)
+    return _call_paginated_deadline_list_api(deadline.list_sessions, "sessions", **kwargs)
