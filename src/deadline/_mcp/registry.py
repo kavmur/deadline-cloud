@@ -55,6 +55,10 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         "func": api.list_storage_profiles_for_queue,
         "param_names": ["farmId", "queueId", "nextToken", "maxResults"],
     },
+    "list_sessions_for_job": {
+        "func": api.list_sessions_for_job,
+        "param_names": ["farmId", "queueId", "jobId"],
+    },
     "check_authentication_status": {
         "func": api.check_authentication_status,
         "param_names": None,
@@ -77,6 +81,10 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
     },
     "download_job_output": {
         "func": job.download_job_output,
+        "param_names": None,
+    },
+    "get_job_logs": {
+        "func": job.get_job_logs,
         "param_names": None,
     },
 }
