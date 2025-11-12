@@ -5,7 +5,7 @@
 from typing import Any, Callable, List, Optional, TypedDict, Dict
 
 from ..client import api
-from .tools import job
+from .tools import job, openjd
 
 
 class ToolDefinition(TypedDict):
@@ -86,5 +86,9 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
     "get_job_logs": {
         "func": job.get_job_logs,
         "param_names": None,
+    },
+    "check_template": {
+        "func": openjd.check_template,
+        "param_names": ["path"],
     },
 }

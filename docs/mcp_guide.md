@@ -85,6 +85,7 @@ The MCP server provides access to all allowlisted/configured Deadline Cloud API 
 - `deadline_submit_job()`: Submit an Open Job Description job bundle to AWS Deadline Cloud
 - `deadline_download_job_output()`: Download job output files from AWS Deadline Cloud
 - `deadline_get_job_logs()`: Get CloudWatch logs for a specific session with intelligent session selection
+- `deadline_check_template()`: Validate an Open Job Description template file
 
 
 ## Developer Guide
