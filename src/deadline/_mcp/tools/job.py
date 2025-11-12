@@ -19,6 +19,7 @@ from ...client.api import (
 )
 from ...client.cli._groups.job_group import _download_job_output
 from ...client.config import config_file
+from ...client.config.config_file import set_setting
 from ...common.session_utils import get_session_sort_key
 
 # TODO: Make submit_job tool async once progress reporting feature is supported in clients
@@ -100,10 +101,10 @@ def submit_job(
     if not queue_id:
         raise ValueError("queue_id is required")
 
-    config.set("defaults", "farm_id", farm_id)
-    config.set("defaults", "queue_id", queue_id)
+    set_setting("defaults.farm_id", farm_id, config=config)
+    set_setting("defaults.queue_id", queue_id, config=config)
     if storage_profile_id:
-        config.set("defaults", "storage_profile_id", storage_profile_id)
+        set_setting("defaults.storage_profile_id", storage_profile_id, config=config)
 
     # Submit the job
     job_id = create_job_from_job_bundle(
