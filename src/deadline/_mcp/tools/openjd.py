@@ -16,6 +16,8 @@ try:
         TemplateSpecificationVersion,
         decode_job_template,
         decode_environment_template,
+        create_job,
+        preprocess_job_parameters,
     )
 
     OPENJD_AVAILABLE = True
@@ -137,5 +139,139 @@ def check_template(
             "status": "error",
             "path": path,
             "message": "Unexpected error during validation",
+            "error": str(e),
+        }
+
+
+def summary(
+    path: str,
+    job_parameters: str = "{}",
+    step: str = None,
+) -> Dict[str, Any]:
+    """
+    Displays summary information about a Job or Step, including Steps and Tasks.
+
+    This tool generates a Job from the template and parameters, then provides
+    summary information about the job structure.
+
+    Args:
+        path: Path to a Job template file (JSON or YAML)
+        job_parameters: JSON string of job parameters as a dict (e.g., '{"MyParam": "value"}')
+        step: Optional step name to get detailed information about a specific step
+
+    Returns:
+        Dictionary containing job summary with steps, tasks, and parameters
+
+    Raises:
+        ValueError: If the path doesn't exist or parameters are invalid
+        RuntimeError: If openjd.model is not installed or job creation fails
+    """
+    if not OPENJD_AVAILABLE:
+        raise RuntimeError(
+            "openjd.model is not installed. Install it with: pip install openjd-model"
+        )
+
+    # Validate inputs
+    if not os.path.exists(path):
+        raise ValueError(f"Template file does not exist: {path}")
+
+    if not os.path.isfile(path):
+        raise ValueError(f"Path is not a file: {path}")
+
+    # Parse job parameters
+    try:
+        job_param_values = json.loads(job_parameters) if job_parameters else {}
+        if not isinstance(job_param_values, dict):
+            raise ValueError("job_parameters must be a JSON object/dict")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in job_parameters: {e}")
+
+    try:
+        # Read and parse the template file
+        template_object = _read_template(path)
+
+        # Decode the job template
+        job_template = decode_job_template(template=template_object)
+
+        # Preprocess and validate job parameters
+        processed_params = preprocess_job_parameters(
+            job_template=job_template,
+            job_parameter_values=job_param_values,
+        )
+
+        # Create the job
+        job = create_job(
+            job_template=job_template,
+            job_parameter_values=processed_params,
+        )
+
+        # Build summary information
+        job_name = job.get("name", "Unknown")
+        parameters = job.get("parameters", {})
+        steps = job.get("steps", [])
+
+        # Count total tasks across all steps
+        total_tasks = 0
+        step_summaries = []
+
+        for step_obj in steps:
+            step_name = step_obj.get("name", "Unknown")
+            step_params = step_obj.get("parameterSpace", {})
+
+            # Calculate task count for this step
+            task_count = 1
+            if step_params:
+                # Each parameter combination creates a task
+                for param_def in step_params.get("taskParameterDefinitions", []):
+                    param_range = param_def.get("range", [])
+                    if isinstance(param_range, list):
+                        task_count *= len(param_range)
+
+            total_tasks += task_count
+
+            step_summary = {
+                "name": step_name,
+                "task_count": task_count,
+                "parameter_count": len(step_params.get("taskParameterDefinitions", [])),
+            }
+
+            # Add dependencies if present
+            if "dependencies" in step_obj:
+                step_summary["dependencies"] = step_obj["dependencies"]
+
+            step_summaries.append(step_summary)
+
+        result = {
+            "status": "success",
+            "path": path,
+            "job_name": job_name,
+            "parameters": parameters,
+            "total_steps": len(steps),
+            "total_tasks": total_tasks,
+            "steps": step_summaries,
+        }
+
+        # If a specific step was requested, add detailed info
+        if step:
+            matching_step = next((s for s in step_summaries if s["name"] == step), None)
+            if matching_step:
+                result["requested_step"] = matching_step
+            else:
+                result["warning"] = f"Step '{step}' not found in job"
+
+        return result
+
+    except DecodeValidationError as e:
+        return {
+            "status": "error",
+            "path": path,
+            "message": "Template validation failed",
+            "error": str(e),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "path": path,
+            "message": "Error generating job summary",
             "error": str(e),
         }

@@ -27,18 +27,12 @@ class TestCheckTemplate:
             "steps": [
                 {
                     "name": "TestStep",
-                    "script": {
-                        "actions": {
-                            "onRun": {"command": "echo", "args": ["Hello World"]}
-                        }
-                    },
+                    "script": {"actions": {"onRun": {"command": "echo", "args": ["Hello World"]}}},
                 }
             ],
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(valid_template, f)
             temp_path = f.name
 
@@ -58,9 +52,7 @@ class TestCheckTemplate:
             "steps": [],
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(invalid_template, f)
             temp_path = f.name
 
@@ -79,9 +71,7 @@ class TestCheckTemplate:
             # Missing required 'steps' field
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(invalid_template, f)
             temp_path = f.name
 
@@ -118,9 +108,7 @@ steps:
             - Hello World
 """
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(valid_template_yaml)
             temp_path = f.name
 
@@ -128,5 +116,149 @@ steps:
             result = check_template(temp_path)
             assert result["status"] == "valid"
             assert result["specification_version"] == "jobtemplate-2023-09"
+        finally:
+            Path(temp_path).unlink()
+
+
+@pytest.mark.skipif(not OPENJD_AVAILABLE, reason="openjd.model not installed")
+class TestSummary:
+    """Test the summary tool."""
+
+    def test_summary_basic_job(self):
+        """Test summary of a basic job template."""
+        from deadline._mcp.tools.openjd import summary
+
+        valid_template = {
+            "specificationVersion": "jobtemplate-2023-09",
+            "name": "TestJob",
+            "parameters": [
+                {
+                    "name": "JobParam",
+                    "type": "STRING",
+                    "default": "default_value",
+                }
+            ],
+            "steps": [
+                {
+                    "name": "TestStep",
+                    "script": {"actions": {"onRun": {"command": "echo", "args": ["Hello World"]}}},
+                }
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(valid_template, f)
+            temp_path = f.name
+
+        try:
+            result = summary(temp_path)
+            assert result["status"] == "success"
+            assert result["job_name"] == "TestJob"
+            assert result["total_steps"] == 1
+            assert len(result["steps"]) == 1
+            assert result["steps"][0]["name"] == "TestStep"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_summary_with_parameters(self):
+        """Test summary with job parameters."""
+        from deadline._mcp.tools.openjd import summary
+
+        valid_template = {
+            "specificationVersion": "jobtemplate-2023-09",
+            "name": "ParameterizedJob",
+            "parameters": [
+                {
+                    "name": "FrameRange",
+                    "type": "STRING",
+                }
+            ],
+            "steps": [
+                {
+                    "name": "RenderStep",
+                    "script": {
+                        "actions": {
+                            "onRun": {
+                                "command": "echo",
+                                "args": ["Rendering {{Param.FrameRange}}"],
+                            }
+                        }
+                    },
+                }
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(valid_template, f)
+            temp_path = f.name
+
+        try:
+            result = summary(temp_path, job_parameters='{"FrameRange": "1-10"}')
+            assert result["status"] == "success"
+            assert result["job_name"] == "ParameterizedJob"
+            assert "FrameRange" in result["parameters"]
+        finally:
+            Path(temp_path).unlink()
+
+    def test_summary_specific_step(self):
+        """Test summary for a specific step."""
+        from deadline._mcp.tools.openjd import summary
+
+        valid_template = {
+            "specificationVersion": "jobtemplate-2023-09",
+            "name": "MultiStepJob",
+            "steps": [
+                {
+                    "name": "Step1",
+                    "script": {"actions": {"onRun": {"command": "echo", "args": ["Step 1"]}}},
+                },
+                {
+                    "name": "Step2",
+                    "script": {"actions": {"onRun": {"command": "echo", "args": ["Step 2"]}}},
+                },
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(valid_template, f)
+            temp_path = f.name
+
+        try:
+            result = summary(temp_path, step="Step1")
+            assert result["status"] == "success"
+            assert "requested_step" in result
+            assert result["requested_step"]["name"] == "Step1"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_summary_nonexistent_file(self):
+        """Test summary with nonexistent file."""
+        from deadline._mcp.tools.openjd import summary
+
+        with pytest.raises(ValueError, match="does not exist"):
+            summary("/nonexistent/path/to/template.json")
+
+    def test_summary_invalid_parameters(self):
+        """Test summary with invalid job parameters."""
+        from deadline._mcp.tools.openjd import summary
+
+        valid_template = {
+            "specificationVersion": "jobtemplate-2023-09",
+            "name": "TestJob",
+            "steps": [
+                {
+                    "name": "TestStep",
+                    "script": {"actions": {"onRun": {"command": "echo", "args": ["Hello"]}}},
+                }
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(valid_template, f)
+            temp_path = f.name
+
+        try:
+            with pytest.raises(ValueError, match="Invalid JSON"):
+                summary(temp_path, job_parameters="not valid json")
         finally:
             Path(temp_path).unlink()

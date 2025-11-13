@@ -91,4 +91,8 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
         "func": openjd.check_template,
         "param_names": ["path"],
     },
+    "summary": {
+        "func": openjd.summary,
+        "param_names": ["path", "job_parameters", "step"],
+    },
 }
