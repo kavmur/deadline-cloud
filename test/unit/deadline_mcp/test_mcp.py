@@ -60,7 +60,7 @@ class TestToolRegistry:
             "get_job_logs",
             "get_session_logs",
             "check_template",
-            "summary",
+            "summarize_job_template",
         }
 
         actual_tools = set(TOOL_REGISTRY.keys())

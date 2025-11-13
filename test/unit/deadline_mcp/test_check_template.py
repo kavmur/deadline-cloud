@@ -121,12 +121,12 @@ steps:
 
 
 @pytest.mark.skipif(not OPENJD_AVAILABLE, reason="openjd.model not installed")
-class TestSummary:
-    """Test the summary tool."""
+class TestSummarizeJobTemplate:
+    """Test the summarize_job_template tool."""
 
-    def test_summary_basic_job(self):
-        """Test summary of a basic job template."""
-        from deadline._mcp.tools.openjd import summary
+    def test_summarize_basic_job(self):
+        """Test summarize of a basic job template."""
+        from deadline._mcp.tools.openjd import summarize_job_template
 
         valid_template = {
             "specificationVersion": "jobtemplate-2023-09",
@@ -151,7 +151,7 @@ class TestSummary:
             temp_path = f.name
 
         try:
-            result = summary(temp_path)
+            result = summarize_job_template(temp_path)
             assert result["status"] == "success"
             assert result["job_name"] == "TestJob"
             assert result["total_steps"] == 1
@@ -160,9 +160,9 @@ class TestSummary:
         finally:
             Path(temp_path).unlink()
 
-    def test_summary_with_parameters(self):
-        """Test summary with job parameters."""
-        from deadline._mcp.tools.openjd import summary
+    def test_summarize_with_parameters(self):
+        """Test summarize with job parameters."""
+        from deadline._mcp.tools.openjd import summarize_job_template
 
         valid_template = {
             "specificationVersion": "jobtemplate-2023-09",
@@ -193,16 +193,16 @@ class TestSummary:
             temp_path = f.name
 
         try:
-            result = summary(temp_path, job_parameters='{"FrameRange": "1-10"}')
+            result = summarize_job_template(temp_path, job_parameters='{"FrameRange": "1-10"}')
             assert result["status"] == "success"
             assert result["job_name"] == "ParameterizedJob"
             assert "FrameRange" in result["parameters"]
         finally:
             Path(temp_path).unlink()
 
-    def test_summary_specific_step(self):
-        """Test summary for a specific step."""
-        from deadline._mcp.tools.openjd import summary
+    def test_summarize_specific_step(self):
+        """Test summarize for a specific step."""
+        from deadline._mcp.tools.openjd import summarize_job_template
 
         valid_template = {
             "specificationVersion": "jobtemplate-2023-09",
@@ -224,23 +224,23 @@ class TestSummary:
             temp_path = f.name
 
         try:
-            result = summary(temp_path, step="Step1")
+            result = summarize_job_template(temp_path, step="Step1")
             assert result["status"] == "success"
             assert "requested_step" in result
             assert result["requested_step"]["name"] == "Step1"
         finally:
             Path(temp_path).unlink()
 
-    def test_summary_nonexistent_file(self):
-        """Test summary with nonexistent file."""
-        from deadline._mcp.tools.openjd import summary
+    def test_summarize_nonexistent_file(self):
+        """Test summarize with nonexistent file."""
+        from deadline._mcp.tools.openjd import summarize_job_template
 
         with pytest.raises(ValueError, match="does not exist"):
-            summary("/nonexistent/path/to/template.json")
+            summarize_job_template("/nonexistent/path/to/template.json")
 
-    def test_summary_invalid_parameters(self):
-        """Test summary with invalid job parameters."""
-        from deadline._mcp.tools.openjd import summary
+    def test_summarize_invalid_parameters(self):
+        """Test summarize with invalid job parameters."""
+        from deadline._mcp.tools.openjd import summarize_job_template
 
         valid_template = {
             "specificationVersion": "jobtemplate-2023-09",
@@ -259,6 +259,6 @@ class TestSummary:
 
         try:
             with pytest.raises(ValueError, match="Invalid JSON"):
-                summary(temp_path, job_parameters="not valid json")
+                summarize_job_template(temp_path, job_parameters="not valid json")
         finally:
             Path(temp_path).unlink()

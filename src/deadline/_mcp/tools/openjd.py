@@ -8,7 +8,7 @@ import json
 import os
 import yaml
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 try:
     from openjd.model import (
@@ -143,13 +143,13 @@ def check_template(
         }
 
 
-def summary(
+def summarize_job_template(
     path: str,
     job_parameters: str = "{}",
-    step: str = None,
+    step: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Displays summary information about a Job or Step, including Steps and Tasks.
+    Summarizes a Job Template, displaying information about Steps and Tasks.
 
     This tool generates a Job from the template and parameters, then provides
     summary information about the job structure.
