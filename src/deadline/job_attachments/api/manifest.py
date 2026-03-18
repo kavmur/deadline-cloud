@@ -9,6 +9,10 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import boto3
 import botocore.client
 
+from deadline.client.api._session import (
+    _get_queue_user_boto3_session,
+    get_default_client_config,
+)
 from deadline.job_attachments._diff import (
     _fast_file_list_to_manifest_diff,
     compare_manifest,
@@ -86,6 +90,7 @@ def _glob_files(
 
 
 def _manifest_snapshot(
+    *,
     root: str,
     destination: str,
     name: str,
@@ -95,6 +100,8 @@ def _manifest_snapshot(
     diff: Optional[str] = None,
     force_rehash: bool = False,
     print_function_callback: Callable[[Any], None] = lambda msg: None,
+    hash_cache_dir: Optional[str] = None,
+    telemetry_callback: Optional[Callable] = None,
 ) -> Optional[ManifestSnapshot]:
     # Get all files in the root.
     glob_config: GlobConfig
@@ -118,6 +125,8 @@ def _manifest_snapshot(
             files=current_files,
             root=root,
             print_function_callback=print_function_callback,
+            hash_cache_dir=hash_cache_dir,
+            telemetry_callback=telemetry_callback,
         )
         if not output_manifest:
             return None
@@ -151,6 +160,8 @@ def _manifest_snapshot(
                 files=current_files,
                 root=root,
                 print_function_callback=print_function_callback,
+                hash_cache_dir=hash_cache_dir,
+                telemetry_callback=telemetry_callback,
             )
             if not output_manifest:
                 return None
@@ -174,6 +185,8 @@ def _manifest_snapshot(
             files=changed_paths,
             root=root,
             print_function_callback=print_function_callback,
+            hash_cache_dir=hash_cache_dir,
+            telemetry_callback=telemetry_callback,
         )
         if not output_manifest:
             return None
