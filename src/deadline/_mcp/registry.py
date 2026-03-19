@@ -30,15 +30,15 @@ def get_all_tool_names() -> List[str]:
 TOOL_REGISTRY: Dict[str, ToolDefinition] = {
     "list_farms": {
         "func": api.list_farms,
-        "param_names": ["nextToken", "principalId", "maxResults"],
+        "param_names": ["nextToken", "principalId"],
     },
     "list_queues": {
         "func": api.list_queues,
-        "param_names": ["farmId", "principalId", "status", "nextToken", "maxResults"],
+        "param_names": ["farmId", "principalId", "status", "nextToken"],
     },
     "list_jobs": {
         "func": api.list_jobs,
-        "param_names": ["farmId", "queueId", "principalId", "nextToken", "maxResults"],
+        "param_names": ["farmId", "queueId", "principalId", "nextToken"],
     },
     "list_fleets": {
         "func": api.list_fleets,
@@ -48,12 +48,11 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
             "displayName",
             "status",
             "nextToken",
-            "maxResults",
         ],
     },
     "list_storage_profiles_for_queue": {
         "func": api.list_storage_profiles_for_queue,
-        "param_names": ["farmId", "queueId", "nextToken", "maxResults"],
+        "param_names": ["farmId", "queueId", "nextToken"],
     },
     "check_authentication_status": {
         "func": api.check_authentication_status,
@@ -95,15 +94,15 @@ TOOL_REGISTRY: Dict[str, ToolDefinition] = {
     },
     "list_sessions": {
         "func": api.list_sessions,
-        "param_names": ["farm_id", "queue_id", "job_id", "max_results"],
+        "param_names": ["farm_id", "queue_id", "job_id"],
     },
     "list_steps": {
         "func": api.list_steps,
-        "param_names": ["farm_id", "queue_id", "job_id", "max_results"],
+        "param_names": ["farm_id", "queue_id", "job_id"],
     },
     "list_tasks": {
         "func": api.list_tasks,
-        "param_names": ["farm_id", "queue_id", "job_id", "step_id", "max_results"],
+        "param_names": ["farm_id", "queue_id", "job_id", "step_id"],
     },
     "search_jobs": {
         "func": api.search_jobs,
