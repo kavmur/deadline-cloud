@@ -248,7 +248,7 @@ _ADDITIONAL_ATTRIBUTIONS = [
 
 # Some packages specify their license but do not include it in the repository/package
 # We attribute these manually using _ADDITIONAL_ATTRIBUTIONS
-_EXPECTED_MISSING_LICENSE = {"pywin32"}
+_EXPECTED_MISSING_LICENSE: set[str] = set()
 
 # Mapping from import/module names used in the PyInstaller allowlist's DEPENDENCIES
 # to the package names used in attributions. Only needed when they differ.
